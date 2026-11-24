@@ -1,0 +1,80 @@
+name: Nightly NAV update
+
+on:
+  schedule:
+    # GitHub cron is in UTC. 18:45 UTC = 00:15 IST (after AMFI publishes by 11 PM IST)
+    - cron: "45 18 * * 1-5"
+    # retry next morning, 02:45 UTC = 08:15 IST (catches late AMFI uploads / failed runs)
+    - cron: "45 2 * * 2-6"
+  workflow_dispatch:        # adds a "Run workflow" button in the Actions tab
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: nav-update
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install libraries
+        run: pip install -r requirements.txt
+
+      # The NAV database (data/mf.db) is kept between runs in GitHub's cache,
+      # so each night only new NAVs are downloaded. If the cache is ever lost,
+      # the next run simply rebuilds the history (takes ~20-40 minutes).
+      - name: Restore NAV database
+        uses: actions/cache/restore@v5
+        with:
+          path: data/mf.db
+          key: mfdb-${{ github.run_id }}
+          restore-keys: mfdb-
+
+      - name: Download NAVs and calculate returns
+        run: python mf_update.py
+
+      - name: Save NAV database
+        if: always() && hashFiles('data/mf.db') != ''
+        uses: actions/cache/save@v5
+        with:
+          path: data/mf.db
+          key: mfdb-${{ github.run_id }}
+
+      - name: Prepare website files
+        run: |
+          mkdir -p _site/data
+          cp index.html _site/
+          cp data/summary.json data/Fund_Returns.csv _site/data/
+          cp -r data/nav _site/data/
+          du -sh _site
+
+      - name: Upload website
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
