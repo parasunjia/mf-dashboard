@@ -9,7 +9,7 @@ on:
   workflow_dispatch:        # adds a "Run workflow" button in the Actions tab
   push:                     # republish automatically when you upload a new index.html / mf_update.py
     branches: [main]
-    paths: ["index.html", "mf_update.py", ".github/workflows/update.yml"]
+    paths: ["index.html", "mf_update.py", "requirements.txt", ".github/workflows/update.yml"]
 
 permissions:
   contents: read
@@ -64,6 +64,10 @@ jobs:
           cp index.html _site/
           cp data/summary.json data/Fund_Returns.csv _site/data/
           cp -r data/nav _site/data/
+          # NSE index data (benchmarks + Indices tab)
+          if [ -d data/bench ]; then cp -r data/bench _site/data/; fi
+          if [ -f data/Index_Returns.csv ]; then cp data/Index_Returns.csv _site/data/; fi
+          echo "index files published: $(ls _site/data/bench 2>/dev/null | wc -l)"
           du -sh _site
 
       - name: Upload website
