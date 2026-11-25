@@ -14,13 +14,14 @@ Settings you may want to change are right below.
 """
 
 # ============================ SETTINGS ============================
-PLANS = ["Direct"]                  # add "Regular" to include regular plans
-OPTIONS = ["Growth"]                # Growth only: IDCW NAVs drop on payouts
+PLANS = ["Direct", "Regular"]       # both plans; choose between them in the dashboard
+OPTIONS = ["Growth"]                # Growth only: IDCW NAVs drop on payouts, so NAV returns would be wrong
 SCHEME_TYPES = ["Open Ended"]
 EXCLUDE_ASSET_CLASSES = []          # e.g. ["Debt"] or ["Other"] (Other = index funds, ETFs, FoFs)
 EXCLUDE_NAME_WORDS = ["segregated", "unclaimed"]
 
 TRAILING_PERIODS = ["1W", "1M", "3M", "6M", "YTD", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "SI"]
+DAYS_IN_YEAR = 365                  # CAGR = (NAV1/NAV0) ** (365 / days) - 1
 # ==================================================================
 
 # Advanced settings (normally leave as is)
@@ -134,6 +135,25 @@ def parse_navall(text):
 
 
 IDCW_RE = re.compile(r"\bidcw\b|income distribution|\bdividend\b(?!\s+yield)|\bpayout\b|\breinvest", re.I)
+
+
+_PLANOPT = re.compile(r"\b(direct|dir|regular|reg|plan|growth|option|opt|gr|g|cumulative|cum|retail|institutional)\b", re.I)
+
+
+def _only_planopt(text):
+    return not re.sub(r"[\s\-–()/.,]", "", _PLANOPT.sub("", text))
+
+
+def clean_name(name):
+    """'HDFC Flexi Cap Fund - Growth Option - Direct Plan' -> 'HDFC Flexi Cap Fund'"""
+    s = re.sub(r"\(([^)]*)\)", lambda m: "" if _only_planopt(m.group(1)) else m.group(0), name or "")
+    keep = [p for p in (x.strip() for x in re.split(r"\s*[-–]\s*", s)) if p and not _only_planopt(p)]
+    if not keep:
+        return (name or "").strip()
+    out = " - ".join(keep)
+    out = re.sub(r"(\s+(direct|regular)(\s+plan)?(\s+growth(\s+(plan|option))?)?)+\s*$", "", out, flags=re.I)
+    out = re.sub(r"\s+(growth(\s+(plan|option))?)\s*$", "", out, flags=re.I)
+    return re.sub(r"\s{2,}", " ", out).strip(" -")
 
 
 def classify(rec):
@@ -297,12 +317,18 @@ def step_history(con, extra_codes=()):
             log.warning("   %5d x  %s", n, why)
 
 
+
+
 # ======================= 4. RETURN CALCULATIONS =======================
-# Rules: holiday -> last NAV on or before the date | <=1 year absolute, >1 year CAGR (365.25-day years)
-#        fund younger than the period -> blank | fund TWRR = chain-linked NAV returns = NAV1/NAV0 - 1
+# The dashboard recalculates everything in the browser for any as-on date; these Python
+# versions produce Fund_Returns.csv and are the reference the browser maths is tested against.
+# Rules: holiday -> last NAV on or before the date
+#        1W..1Y and YTD: absolute | longer periods: CAGR = (NAV1/NAV0) ** (365/days) - 1
+#        fund younger than the period -> blank
 PERIOD_OFFSETS = {"1W": dict(weeks=1), "1M": dict(months=1), "3M": dict(months=3), "6M": dict(months=6),
                   "1Y": dict(years=1), "2Y": dict(years=2), "3Y": dict(years=3), "5Y": dict(years=5),
                   "7Y": dict(years=7), "10Y": dict(years=10)}
+ABSOLUTE_PERIODS = {"1W", "1M", "3M", "6M", "YTD", "1Y"}
 
 
 def nav_on_or_before(s, d):
@@ -310,12 +336,8 @@ def nav_on_or_before(s, d):
     return (s.index[i], float(s.iloc[i])) if i >= 0 else (None, None)
 
 
-def annualise(r, days):
-    return (1 + r) ** (365.25 / days) - 1 if days > 366 else r
-
-
-def twrr(sub_period_returns):
-    return float(np.prod([1 + r for r in sub_period_returns]) - 1)
+def cagr(r, days):
+    return (1 + r) ** (DAYS_IN_YEAR / days) - 1
 
 
 def trailing_return(s, as_of, period):
@@ -331,33 +353,25 @@ def trailing_return(s, as_of, period):
         _, n0 = nav_on_or_before(s, start)
     _, n1 = nav_on_or_before(s, as_of)
     days = (as_of - start).days
-    return annualise(n1 / n0 - 1, days) if days > 0 else None
+    if days <= 0:
+        return None
+    r = n1 / n0 - 1
+    return r if (period in ABSOLUTE_PERIODS or days <= DAYS_IN_YEAR) else cagr(r, days)
 
 
 def calendar_returns(s, as_of):
-    """Full calendar years {year: r} and the launch year {year: r} (partial)."""
-    full, partial, prev = {}, {}, None
+    """Full calendar years {year: r}: last NAV of year / last NAV of previous year - 1."""
+    full, prev = {}, None
     for d, v in s.resample("YE").last().dropna().items():
         if d.year >= pd.Timestamp(as_of).year:
             break
         if prev is None:
-            if (d - s.index[0]).days >= 7:
-                r = v / float(s.iloc[0]) - 1
-                if s.index[0] <= pd.Timestamp(d.year - 1, 12, 31) + pd.Timedelta(days=7):
-                    full[d.year] = r
-                else:
-                    partial[d.year] = r
+            if (d - s.index[0]).days >= 7 and s.index[0] <= pd.Timestamp(d.year - 1, 12, 31) + pd.Timedelta(days=7):
+                full[d.year] = v / float(s.iloc[0]) - 1
         else:
             full[d.year] = v / prev - 1
         prev = v
-    return full, partial
-
-
-def monthly_returns(s):
-    me = s.resample("ME").last()
-    r = (me / me.shift(1) - 1).iloc[1:]
-    r.index = r.index.strftime("%Y-%m")
-    return r
+    return full
 
 
 def category_average(panel):
@@ -372,14 +386,6 @@ def category_average(panel):
         out[max(pos - 1, 0)] = 100.0
         out[pos:] = 100.0 * np.cumprod(g[pos:])
     return out
-
-
-def ranks(values):
-    s = pd.Series({k: v for k, v in values.items() if v is not None}, dtype=float)
-    if s.empty:
-        return {}
-    rk, n = s.rank(ascending=False, method="min"), len(s)
-    return {k: [int(r), n, min(4, max(1, math.ceil(r / n * 4)))] for k, r in rk.items()}
 
 
 def clean_panel(panel, asset_class):
@@ -403,6 +409,9 @@ def clean_panel(panel, asset_class):
 
 
 # ======================= 5. BUILD DASHBOARD FILES =======================
+PLAN_CODE = {"Direct": "D", "Regular": "R"}
+
+
 def _n(x, nd):
     return None if x is None or (isinstance(x, float) and math.isnan(x)) else round(float(x), nd)
 
@@ -425,9 +434,12 @@ def step_build(con):
     as_of = pd.Timestamp(as_of_s)
     log.info("Calculating returns as of %s ...", as_of_s)
     con.execute("DELETE FROM nav_flags")
-    funds, cats, cat_stats, csv, inactive = [], [], {}, [], set()
+    funds, cats, csv, inactive = [], {}, [], set()
 
-    for cat_id, g in schemes.groupby("category_id"):
+    for (cat_id, plan), g in schemes.groupby(["category_id", "plan"]):
+        pc = PLAN_CODE.get(plan)
+        if pc is None:
+            continue
         codes = g["scheme_code"].tolist()
         df = pd.read_sql_query(f"SELECT * FROM nav_history WHERE scheme_code IN ({','.join('?' * len(codes))})",
                                con, params=codes)
@@ -448,68 +460,52 @@ def step_build(con):
         panel = panel[active].dropna(how="all")
         meta = g.set_index("scheme_code")
 
-        res, by_period, monthly = {}, {p: {} for p in TRAILING_PERIODS}, {}
         for c in active:
             s = panel[c].dropna()
-            tr = {p: trailing_return(s, as_of, p) for p in TRAILING_PERIODS}
-            for p, v in tr.items():
-                by_period[p][c] = v
-            res[c] = (s, tr, *calendar_returns(s, as_of))
-            monthly[c] = monthly_returns(s)
-        rk = {p: ranks(by_period[p]) for p in TRAILING_PERIODS}
-
-        stats = {}
-        for p in TRAILING_PERIODS:
-            a = np.array([v for v in by_period[p].values() if v is not None])
-            if len(a):
-                stats[p] = {"avg": _n(a.mean() * 100, 2), "med": _n(np.median(a) * 100, 2),
-                            "max": _n(a.max() * 100, 2), "min": _n(a.min() * 100, 2), "n": len(a)}
-        cat_stats[cat_id] = stats
-
-        for c in active:
-            s, tr, cy, cyp = res[c]
             m = meta.loc[c]
-            funds.append({"c": int(c), "n": m["scheme_name"], "amc": m["amc"], "cat": cat_id,
+            name = clean_name(m["scheme_name"])
+            funds.append({"c": int(c), "n": name, "fn": m["scheme_name"], "amc": m["amc"], "cat": cat_id, "pl": pc,
                           "inc": s.index[0].date().isoformat(), "last": s.index[-1].date().isoformat(),
-                          "nav": _n(s.iloc[-1], 4),
-                          "tr": {p: None if v is None else _n(v * 100, 2) for p, v in tr.items()},
-                          "cy": {str(y): _n(v * 100, 2) for y, v in cy.items()},
-                          "cyp": {str(y): _n(v * 100, 2) for y, v in cyp.items()},
-                          "rk": {p: rk[p][c] for p in TRAILING_PERIODS if c in rk[p]}})
-            csv.append({"Scheme Code": int(c), "Scheme Name": m["scheme_name"], "AMC": m["amc"],
-                        "Asset Class": ac, "Category": cat_name, "Inception": s.index[0].date(),
-                        "NAV Date": s.index[-1].date(), "NAV": round(s.iloc[-1], 4),
-                        **{f"{p} %": (None if v is None else round(v * 100, 2)) for p, v in tr.items()}})
+                          "nav": _n(s.iloc[-1], 4)})
+            tr = {p: trailing_return(s, as_of, p) for p in TRAILING_PERIODS}
+            cy = calendar_returns(s, as_of)
+            csv.append({"Scheme Code": int(c), "Fund": name, "Plan": plan, "AMC": m["amc"], "Asset Class": ac,
+                        "Category": cat_name, "Inception": s.index[0].date(), "NAV Date": s.index[-1].date(),
+                        "NAV": round(s.iloc[-1], 4),
+                        **{f"{p} %": (None if v is None else round(v * 100, 2)) for p, v in tr.items()},
+                        **{f"CY{y} %": round(v * 100, 2) for y, v in sorted(cy.items(), reverse=True)[:10]}})
 
-        months = sorted({k for ser in monthly.values() for k in ser.index})
-        _write_json(nav_dir / f"{cat_id}.json", {
-            "id": cat_id, "name": cat_name, "ac": ac, "as_of": as_of_s,
+        fname = f"{cat_id}__{pc.lower()}.json"
+        _write_json(nav_dir / fname, {
+            "id": cat_id, "plan": pc, "name": cat_name, "ac": ac, "as_of": as_of_s,
             "dates": [d.date().isoformat() for d in panel.index],
             "series": {str(int(c)): [_n(v, 4) for v in panel[c].to_numpy()] for c in active},
-            "cat_avg": [_n(v, 4) for v in category_average(panel)],
-            "months": months,
-            "monthly": {str(int(c)): [_n(monthly[c].get(mo, np.nan) * 100, 2) for mo in months] for c in active}})
-        cats.append({"id": cat_id, "name": cat_name, "ac": ac, "n": len(active), "file": f"nav/{cat_id}.json"})
+            "cat_avg": [_n(v, 4) for v in category_average(panel)]})
+        cat = cats.setdefault(cat_id, {"id": cat_id, "name": cat_name, "ac": ac, "n": {}, "files": {}})
+        cat["n"][pc] = len(active)
+        cat["files"][pc] = f"nav/{fname}"
 
     con.execute("UPDATE schemes SET status='active' WHERE in_universe=1")
     con.executemany("UPDATE schemes SET status='inactive' WHERE scheme_code=?", [(c,) for c in inactive])
     con.commit()
+    cat_list = sorted(cats.values(), key=lambda c: (c["ac"], c["name"]))
     _write_json(DATA / "summary.json", {
-        "as_of": as_of_s, "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "periods": TRAILING_PERIODS, "categories": sorted(cats, key=lambda c: (c["ac"], c["name"])),
-        "cat_stats": cat_stats, "funds": funds, "inactive_count": len(inactive)})
+        "version": 2, "as_of": as_of_s, "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "periods": TRAILING_PERIODS, "days_in_year": DAYS_IN_YEAR,
+        "asset_classes": sorted({c["ac"] for c in cat_list}),
+        "categories": cat_list, "funds": funds, "inactive_count": len(inactive)})
     try:
         pd.DataFrame(csv).to_csv(DATA / "Fund_Returns.csv", index=False)
     except PermissionError:
         log.warning("Fund_Returns.csv is open in Excel - close it to let it update next time.")
-    msg = f"{len(funds)} funds in {len(cats)} categories ({len(inactive)} closed/merged skipped)"
+    msg = f"{len(funds)} funds in {len(cat_list)} categories ({len(inactive)} closed/merged skipped)"
     log_run(con, "build", "ok", as_of_s, msg)
     log.info("Returns ready: %s in %.0fs", msg, time.time() - t0)
 
 
 # ======================= DEMO (works offline) =======================
 def make_demo_navall(seed=7):
-    """Synthetic AMFI-format file + history so you can try everything without internet."""
+    """Synthetic AMFI-format file + history (Direct and Regular plans) to try everything offline."""
     rng = np.random.default_rng(seed)
     days = pd.bdate_range("2012-01-02", pd.Timestamp(date.today()) - pd.offsets.BDay(1))
     mkt = rng.normal(0.13 / 252, 0.17 / np.sqrt(252), len(days))
@@ -517,6 +513,7 @@ def make_demo_navall(seed=7):
             ("Equity Scheme - Small Cap Fund", 8, 0.18, 0.25, 1.25), ("Equity Scheme - Flexi Cap Fund", 10, 0.14, 0.18, 1.0),
             ("Hybrid Scheme - Aggressive Hybrid Fund", 6, 0.11, 0.12, 0.7), ("Debt Scheme - Liquid Fund", 6, 0.065, 0.004, 0)]
     amcs = ["Alpha", "Bharat", "Coastal", "Deccan", "Everest", "Ganga", "Himalaya", "Indus", "Jaipur", "Kaveri"]
+    styles = ["{n} - Direct Plan - Growth", "{n} - Growth Option - Direct Plan", "{n}-Direct Plan-Growth", "{n} Direct Growth"]
     lines = ["Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Net Asset Value;Date", ""]
     hist, code = [], 900001
     for sec, k, mu, vol, beta in cats:
@@ -527,10 +524,15 @@ def make_demo_navall(seed=7):
                 r = beta * mkt + rng.normal((mu - beta * 0.13) / 252, vol * 0.5 / np.sqrt(252), len(days))
             else:
                 r = rng.normal(mu / 252, vol / np.sqrt(252), len(days))
-            nav = 10 * np.cumprod(1 + r[st:])
-            name = f"{amcs[i]} {sec.split(' - ')[1]} - Direct Plan - Growth"
-            lines += [f"{amcs[i]} Mutual Fund", f"{code};INFDEMO{code};-;{name};{nav[-1]:.4f};{days[-1]:%d-%b-%Y}", ""]
-            hist += [(code, d.date().isoformat(), float(v)) for d, v in zip(days[st:], nav)]
+            nav_d = 10 * np.cumprod(1 + r[st:])
+            nav_r = 10 * np.cumprod(1 + r[st:] - 0.009 / 252)          # regular plan: ~0.9% higher expense
+            base = f"{amcs[i]} {sec.split(' - ')[1]}"
+            lines.append(f"{amcs[i]} Mutual Fund")
+            for nav, cd, plan in ((nav_d, code, "Direct"), (nav_r, code + 50000, "Regular")):
+                name = styles[i % 4].format(n=base).replace("Direct", plan)
+                lines.append(f"{cd};INFDEMO{cd};-;{name};{nav[-1]:.4f};{days[-1]:%d-%b-%Y}")
+                hist += [(cd, d.date().isoformat(), float(v)) for d, v in zip(days[st:], nav)]
+            lines.append("")
             code += 1
     return "\n".join(lines), hist
 
