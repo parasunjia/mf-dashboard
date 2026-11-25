@@ -120,6 +120,7 @@ a.fl { color:var(--ink); text-decoration:none; } a.fl:hover { text-decoration:un
     <button data-tab="cat" class="on">Category overview</button>
     <button data-tab="amc">AMC view</button>
     <button data-tab="cmp">Compare funds</button>
+    <button data-tab="league">Category league</button>
     <button data-tab="fund">Fund details</button>
   </nav>
   <button class="btn small" id="themeBtn" title="Switch light / dark">◐ Theme</button>
@@ -152,6 +153,7 @@ a.fl { color:var(--ink); text-decoration:none; } a.fl:hover { text-decoration:un
       <button class="btn primary" id="toCompare" disabled>Compare selected (0)</button>
     </div>
     <div id="catChartCard"></div>
+    <div id="catScatter"></div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:8px">
         <div><h2 id="catTitle">Funds</h2><p class="sub" style="margin:0" id="catSub"></p></div>
@@ -190,6 +192,12 @@ a.fl { color:var(--ink); text-decoration:none; } a.fl:hover { text-decoration:un
     </div>
     <div class="chips" id="cmpChips"></div>
     <div id="cmpBody"></div>
+  </section>
+
+  <!-- ================= CATEGORY LEAGUE ================= -->
+  <section class="view" id="v-league">
+    <p class="note" style="margin-top:0">Uses the Plan, Asset class and Category filters at the top. Tip: Category → <b>Select all</b> to compare every category.</p>
+    <div id="leagueBody"></div>
   </section>
 
   <!-- ================= FUND ================= -->
@@ -544,7 +552,7 @@ let renderToken = 0;
 async function renderCategory() {
   const tok = ++renderToken, s = settings(), cats = selectedCats();
   const el = $("#catTable");
-  if (!cats.length) { el.innerHTML = `<div class="empty">Select at least one asset class and category at the top.</div>`; $("#catChartCard").innerHTML = ""; $("#catTitle").textContent = "Funds"; $("#catSub").textContent = ""; return; }
+  if (!cats.length) { el.innerHTML = `<div class="empty">Select at least one asset class and category at the top.</div>`; $("#catChartCard").innerHTML = ""; $("#catScatter").innerHTML = ""; $("#catTitle").textContent = "Funds"; $("#catSub").textContent = ""; return; }
   await loadMany(cats.map(c => [c, s.plan]));
   if (tok !== renderToken) return;
   const q = $("#cSearch").value.trim().toLowerCase();
@@ -557,6 +565,7 @@ async function renderCategory() {
   el.innerHTML = groups.length ? tableHTML(groups, s) : `<div class="empty">No fund has a NAV on ${fmtD(s.end)} in this selection.</div>`;
   wireTable(el, renderCategory);
   updatePickBtn();
+  renderScatter(groups, s);
   // ranked chart only when one category is selected
   const card = $("#catChartCard");
   if (groups.length === 1) {
@@ -645,6 +654,7 @@ async function renderCompare() {
     ${adjusted ? `<p class="note" style="margin-top:-6px">Start date moved to <b>${fmtD(from)}</b> so every fund covers the same period (youngest fund: ${esc(youngest.f.n)}, first NAV ${fmtD(commonStart)}).</p>` : ""}
     <div class="card"><h2>Growth of ₹100</h2><p class="sub">${fmtD(from)} to ${fmtD(to)}</p><div id="cmpGrowth"></div></div>
     <div class="card"><h2>Returns and risk</h2><p class="sub">Selected period ${fmtD(from)} → ${fmtD(to)}: ${isCagr ? "CAGR (365-day years)" : "absolute"}; Std dev (annualised, ${s.riskF === "M" ? "monthly" : "daily"} returns) and Max drawdown over the same period. Trailing columns: as on ${fmtD(s.end)}${s.me ? " (month-end)" : ""} with (rank) in category.</p><div class="tablewrap" id="cmpTable"></div></div>
+    <div class="card"><h2>Correlation of returns</h2><p class="sub">How closely the funds move together over the selected period</p><div class="tablewrap" id="cmpCorr" style="max-height:none"></div></div>
     <div class="card"><h2>Calendar-year returns</h2><p class="sub">Best fund each year underlined.</p><div class="tablewrap" id="cmpCal"></div></div>
     <div class="card">
       <div style="display:flex;gap:14px;align-items:end;flex-wrap:wrap;justify-content:space-between">
@@ -683,6 +693,7 @@ async function renderCompare() {
   let c = `<table><thead><tr><th class="l">Fund</th><th>YTD</th>${years.map(y => `<th>${y}</th>`).join("")}</tr></thead><tbody>`;
   items.forEach((i, k) => c += `<tr class="fund"><td class="l"><span class="sw" style="background:${col[i.s]}"></span> ${esc(i.f.n + planTag(i.f))}</td><td class="${ytd[k] === bestYtd ? "best" : ""}">${fmtP(ytd[k])}</td>${years.map(y => `<td class="${cal[k][y] != null && cal[k][y] === bestY[y] ? "best" : ""}">${fmtP(cal[k][y])}</td>`).join("")}</tr>`);
   $("#cmpCal").innerHTML = c + "</tbody></table>";
+  renderCorr(items, from, to, s);
 
   const drawRoll = () => {
     const w = +$("#rollWin").value, tgt = +$("#rollTgt").value; store.set("rollWin", String(w)); store.set("rollTgt", tgt);
@@ -707,6 +718,247 @@ async function renderCompare() {
   };
   $("#rollWin").onchange = drawRoll; $("#rollTgt").onchange = drawRoll;
   drawRoll();
+}
+
+/* ============================== ANALYTICS: drawdowns, stress, correlation, dispersion ============================== */
+function quantile(sorted, q) { if (!sorted.length) return null; const pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos); return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo); }
+function downsampleMin(xs, ys, max = 1500) {          // keeps the deepest point of each bucket (troughs stay visible)
+  if (xs.length <= max) return [xs, ys];
+  const step = Math.ceil(xs.length / max), X = [], Y = [];
+  for (let i = 0; i < xs.length; i += step) { let k = i; for (let j = i; j < Math.min(i + step, xs.length); j++) if (ys[j] < ys[k]) k = j; X.push(xs[k]); Y.push(ys[k]); }
+  return [X, Y];
+}
+/* drawdown on every day = NAV / highest NAV so far (since first NAV) - 1 */
+function underwater(f, from, end) {
+  const X = [], Y = []; let peak = -Infinity; const i1 = idx(f.d, end);
+  for (let i = 0; i <= i1; i++) { if (f.v[i] > peak) peak = f.v[i]; if (f.d[i] >= from) { X.push(f.d[i]); Y.push((f.v[i] / peak - 1) * 100); } }
+  return downsampleMin(X, Y);
+}
+/* drawdown episodes: from a peak, down to the lowest point, until NAV gets back to the peak */
+function drawdownEpisodes(f, end) {
+  const i1 = idx(f.d, end), eps = []; if (i1 < 1) return eps;
+  let pk = 0, inDD = false, tr = 0;
+  for (let i = 1; i <= i1; i++) {
+    if (f.v[i] >= f.v[pk]) { if (inDD) { eps.push({ pk, tr, rec: i }); inDD = false; } pk = i; }
+    else if (!inDD) { inDD = true; tr = i; } else if (f.v[i] < f.v[tr]) tr = i;
+  }
+  if (inDD) eps.push({ pk, tr, rec: null });
+  return eps.map(e => ({ peak: f.d[e.pk], trough: f.d[e.tr], rec: e.rec == null ? null : f.d[e.rec], depth: f.v[e.tr] / f.v[e.pk] - 1 }))
+            .sort((a, b) => a.depth - b.depth);
+}
+/* worst fall inside a window (peak and trough both inside the window) */
+function windowMaxFall(f, from, to) {
+  let i0 = idx(f.d, from); const i1 = idx(f.d, to); if (i0 < 0 || i1 < 0) return null;
+  let peak = -Infinity, mdd = 0; for (let i = i0; i <= i1; i++) { if (f.v[i] > peak) peak = f.v[i]; mdd = Math.min(mdd, f.v[i] / peak - 1); }
+  return mdd;
+}
+const STRESS_DEFAULT = [   // approximate Nifty 50 peak / trough dates; editable in the dashboard
+  { name: "2015–16 slowdown", from: "2015-03-04", to: "2016-02-29" },
+  { name: "2018 mid & small-cap fall", from: "2018-01-15", to: "2018-10-26" },
+  { name: "COVID crash", from: "2020-01-14", to: "2020-03-23" },
+  { name: "COVID rebound (1 year)", from: "2020-03-23", to: "2021-03-23" },
+  { name: "2021–22 correction", from: "2021-10-19", to: "2022-06-17" },
+  { name: "2024–25 correction", from: "2024-09-27", to: "2025-03-04" },
+];
+const stressList = () => store.get("stress", STRESS_DEFAULT);
+/* correlation of fund returns over [from, to]; monthly = month-on-month from 'to' backwards, daily = common NAV dates */
+function pearson(a, b) {
+  const n = a.length; if (n < 3) return null; const ma = mean(a), mb = mean(b); let c = 0, va = 0, vb = 0;
+  for (let i = 0; i < n; i++) { c += (a[i] - ma) * (b[i] - mb); va += (a[i] - ma) ** 2; vb += (b[i] - mb) ** 2; }
+  return va > 0 && vb > 0 ? c / Math.sqrt(va * vb) : null;
+}
+function corrMatrix(series, from, to, freq) {
+  let grid;
+  if (freq === "M") { grid = []; for (let k = 0; k < 2000; k++) { const d = shift(to, { months: -k }); if (d < from) break; grid.push(d); } grid.reverse(); }
+  else { const sets = series.map(f => new Set(f.d.filter(d => d >= from && d <= to))); grid = [...sets[0]].filter(d => sets.every(s => s.has(d))).sort(); }
+  const R = series.map(f => { const v = grid.map(d => navAt(f, d)), r = []; for (let k = 1; k < v.length; k++) r.push(v[k] / v[k - 1] - 1); return r; });
+  return { M: series.map((_, i) => series.map((_, j) => pearson(R[i], R[j]))), n: Math.max(0, grid.length - 1) };
+}
+function divColor(t) {                                   // t in [-1, 1] -> [background, text]
+  const a = hex(css("--mid")), b = hex(t >= 0 ? css("--pos") : css("--neg")), u = Math.min(Math.abs(t), 1);
+  const c = a.map((x, i) => Math.round(x + (b[i] - x) * u)), lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+  return [`rgb(${c})`, lum < 0.55 ? "#ffffff" : "#0b0b0b"];
+}
+
+/* ---------- Category overview: risk-return scatter ---------- */
+function renderScatter(groups, s) {
+  const box = $("#catScatter");
+  if (!groups.length) { box.innerHTML = ""; return; }
+  const per = store.get("scatP", "3Y"), only = store.get("scatCat", "all");
+  const gs = only !== "all" && groups.some(g => g.calc.cat === only) ? groups.filter(g => g.calc.cat === only) : groups;
+  const many = gs.length > 8, col = SERIES();
+  box.innerHTML = `<div class="card"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:end">
+      <div><h2>Risk vs return</h2><p class="sub" style="margin:0">Each dot is a fund: Std dev over ${s.riskP} (${s.riskF === "M" ? "monthly" : "daily"}) vs ${per} return, as on ${fmtD(s.end)}. ✕ = category average${gs.length === 1 ? "; lines split the chart at the category average, so the top-left box is higher return for lower risk" : ""}.</p></div>
+      <div class="controls" style="margin:0">
+        <label>Return <select id="scatP">${["1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "SI"].map(p => `<option ${p === per ? "selected" : ""}>${p}</option>`).join("")}</select></label>
+        ${groups.length > 1 ? `<label>Show <select id="scatCat"><option value="all">All selected categories</option>${groups.map(g => `<option value="${g.calc.cat}" ${g.calc.cat === only ? "selected" : ""}>${esc(g.calc.name)}</option>`).join("")}</select></label>` : ""}
+      </div></div><div id="scatChart"></div>${many ? `<p class="note">More than 8 categories: dots share one colour; hover a dot to see its category, or pick one category above.</p>` : ""}</div>`;
+  $("#scatP").onchange = e => { store.set("scatP", e.target.value); renderScatter(groups, s); };
+  if ($("#scatCat")) $("#scatCat").onchange = e => { store.set("scatCat", e.target.value); renderScatter(groups, s); };
+  const traces = [], shapes = [], ann = [];
+  gs.forEach((g, k) => {
+    const c = many ? col[0] : col[k % 8];
+    const pts = g.codes.map(code => [code, g.calc.rows.get(code)]).filter(([, m]) => m.risk.sd != null && m.tr[per] != null);
+    traces.push({ type: "scatter", mode: "markers", name: g.calc.name, x: pts.map(p => p[1].risk.sd * 100), y: pts.map(p => p[1].tr[per] * 100),
+      text: pts.map(p => S.byCode.get(p[0]).n), customdata: pts.map(p => [g.calc.name, g.calc.ranks["tr:" + per].get(p[0])?.r ?? "–", g.calc.ranks["tr:" + per].get(p[0])?.n ?? ""]),
+      marker: { color: c, size: 10, line: { color: css("--surface"), width: 2 } }, showlegend: !many,
+      hovertemplate: "<b>%{text}</b><br>%{customdata[0]}<br>Return %{y:.2f}%  ·  Std dev %{x:.2f}%<br>Rank %{customdata[1]} of %{customdata[2]}<extra></extra>" });
+    const ax = g.calc.stats.sd.avg, ay = g.calc.stats["tr:" + per].avg;
+    if (ax != null && ay != null) {
+      traces.push({ type: "scatter", mode: "markers", name: `${g.calc.name} average`, x: [ax * 100], y: [ay * 100], showlegend: false,
+        marker: { symbol: "x-thin", size: 16, color: many ? css("--ink") : c, line: { width: 3, color: many ? css("--ink") : c } },
+        hovertemplate: `<b>${esc(g.calc.name)} average</b><br>Return %{y:.2f}%  ·  Std dev %{x:.2f}%<extra></extra>` });
+      if (gs.length === 1) {
+        shapes.push({ type: "line", x0: ax * 100, x1: ax * 100, yref: "paper", y0: 0, y1: 1, line: { color: css("--axis"), width: 1 } },
+                    { type: "line", y0: ay * 100, y1: ay * 100, xref: "paper", x0: 0, x1: 1, line: { color: css("--axis"), width: 1 } });
+        ann.push({ xref: "paper", yref: "paper", x: 0.01, y: 0.99, xanchor: "left", yanchor: "top", text: "Higher return · lower risk", showarrow: false, font: { size: 11, color: css("--muted") } },
+                 { xref: "paper", yref: "paper", x: 0.99, y: 0.01, xanchor: "right", yanchor: "bottom", text: "Lower return · higher risk", showarrow: false, font: { size: 11, color: css("--muted") } });
+      }
+    }
+  });
+  if (!traces.some(t => t.x.length)) { $("#scatChart").innerHTML = `<div class="empty">No fund has both ${s.riskP} risk and ${per} return history here.</div>`; return; }
+  plot("scatChart", traces, { height: 460, hovermode: "closest", xaxis: { title: { text: `Std dev, annualised (${s.riskP})` }, ticksuffix: "%" },
+    yaxis: { title: { text: `${per} return${["1Y"].includes(per) ? "" : " (CAGR)"}` }, ticksuffix: "%" }, shapes, annotations: ann, legend: { y: 1.1 } });
+}
+
+/* ---------- Compare: correlation matrix ---------- */
+function renderCorr(items, from, to, s) {
+  const el = $("#cmpCorr"); if (!el) return;
+  if (items.length < 2) { el.innerHTML = `<div class="empty">Add at least two funds to see correlations.</div>`; return; }
+  const { M, n } = corrMatrix(items.map(i => i.ser), from, to, s.riskF);
+  const col = SERIES();
+  let h = `<table class="heat"><thead><tr><th></th>${items.map(i => `<th title="${esc(i.f.n)}"><span class="sw" style="background:${col[i.s]}"></span></th>`).join("")}</tr></thead><tbody>`;
+  items.forEach((a, r) => {
+    h += `<tr><td class="yr" style="white-space:nowrap"><span class="sw" style="background:${col[a.s]}"></span> ${esc(a.f.n + planTag(a.f))}</td>`;
+    items.forEach((b, c) => { const v = M[r][c]; if (v == null) { h += `<td>–</td>`; return; } const [bg, fg] = divColor(v); h += `<td style="background:${bg};color:${fg};min-width:64px" title="${esc(a.f.n)} vs ${esc(b.f.n)}: ${v.toFixed(3)}">${v.toFixed(2)}</td>`; });
+    h += `</tr>`;
+  });
+  el.innerHTML = h + `</tbody></table><p class="note">${n} ${s.riskF === "M" ? "monthly" : "daily"} returns from ${fmtD(from)} to ${fmtD(to)} (change "Risk based on" at the top for the other frequency). 1.00 = always move together; near 0 = unrelated; negative = move opposite. Funds above ~0.90 add little diversification to each other.</p>`;
+}
+
+/* ---------- Fund details: drawdowns + stress windows ---------- */
+function renderDrawdowns(f, ser, file, s) {
+  const avg = file.avg;
+  const range = store.get("uwRange", "MAX");
+  const draw = () => {
+    const r = store.get("uwRange", "MAX");
+    let from = r === "MAX" ? ser.d[0] : shift(s.end, { years: -+r }); if (from < ser.d[0]) from = ser.d[0];
+    const [x1, y1] = underwater(ser, from, s.end), [x2, y2] = underwater(avg, from, s.end);
+    plot("uwChart", [{ x: x1, y: y1, type: "scatter", mode: "lines", name: f.n, line: { color: SERIES()[0], width: 1.5 }, fill: "tozeroy", fillcolor: "rgba(42,120,214,0.12)", hovertemplate: "%{y:.1f}%" },
+                     { x: x2, y: y2, type: "scatter", mode: "lines", name: "Category average", line: { color: css("--muted"), width: 1.5 }, hovertemplate: "%{y:.1f}%" }],
+      { height: 320, yaxis: { ticksuffix: "%", title: { text: "Below previous peak" } } });
+    document.querySelectorAll("#uwQuick button").forEach(b => b.classList.toggle("on", b.dataset.r === r));
+  };
+  $("#uwQuick").innerHTML = ["1", "3", "5", "10", "MAX"].map(r => `<button class="btn small ${r === range ? "on" : ""}" data-r="${r}">${r === "MAX" ? "Max" : r + "Y"}</button>`).join("");
+  $("#uwQuick").onclick = e => { const b = e.target.closest("button"); if (!b) return; store.set("uwRange", b.dataset.r); draw(); };
+  draw();
+  // worst 5 drawdowns (full history up to the as-on date)
+  const eps = drawdownEpisodes(ser, s.end).slice(0, 5);
+  $("#ddTable").innerHTML = eps.length ? `<table><thead><tr><th class="l">#</th><th>Fall</th><th>Peak</th><th>Bottom</th><th>Recovered</th><th>Days falling</th><th>Days to recover</th><th>Total days under peak</th><th>Category avg in same dates</th></tr></thead><tbody>` +
+    eps.map((e, i) => { const fallDays = daysBetween(e.peak, e.trough), recDays = e.rec ? daysBetween(e.trough, e.rec) : null, tot = daysBetween(e.peak, e.rec || s.end);
+      const cat = pointReturn(avg, e.peak, e.trough, true);
+      return `<tr class="fund"><td class="l">${i + 1}</td><td><b>${fmtP(e.depth)}</b></td><td>${fmtD(e.peak)}</td><td>${fmtD(e.trough)}</td><td>${e.rec ? fmtD(e.rec) : `<span title="Not back to the old peak by ${fmtD(s.end)}">⚠ not yet</span>`}</td>
+        <td>${fallDays.toLocaleString("en-IN")}</td><td>${recDays == null ? `${daysBetween(e.trough, s.end).toLocaleString("en-IN")}+ so far` : recDays.toLocaleString("en-IN")}</td><td>${tot.toLocaleString("en-IN")}${e.rec ? "" : "+"}</td><td>${fmtP(cat)}</td></tr>`; }).join("") + `</tbody></table>`
+    : `<div class="empty">No drawdown yet.</div>`;
+  renderStress(f, ser, file);
+}
+function renderStress(f, ser, file) {
+  const list = stressList(), last = S.sum.as_of;
+  let h = `<table><thead><tr><th class="l">Window</th><th class="l">Dates</th><th>Fund return</th><th>Category average</th><th>Fund vs category</th><th>Rank in category</th><th>Fund worst fall inside window</th><th></th></tr></thead><tbody>`;
+  list.forEach((w, k) => {
+    let row = `<td class="l"><b>${esc(w.name)}</b></td><td class="l">${fmtD(w.from)} → ${fmtD(w.to)}</td>`;
+    if (w.to > last || w.from >= w.to) row += `<td colspan="5" class="l" style="color:var(--muted)">window ends after the latest NAV</td>`;
+    else if (ser.d[0] > w.from) row += `<td colspan="5" class="l" style="color:var(--muted)">fund not launched yet (first NAV ${fmtD(ser.d[0])})</td>`;
+    else {
+      const vals = new Map(); file.ser.forEach((g, code) => vals.set(code, pointReturn(g, w.from, w.to, true)));
+      const arr = [...vals.values()].filter(v => v != null), mine = vals.get(f.c), avgR = mean(arr), rk = rankMap(vals).get(f.c);
+      const diff = mine != null && avgR != null ? mine - avgR : null;
+      row += `<td class="${rk ? "q" + rk.q : ""}"><b>${fmtP(mine)}</b></td><td>${fmtP(avgR)}</td><td>${diff == null ? "–" : (diff >= 0 ? "▲ " : "▼ ") + fmtP(Math.abs(diff))}</td><td>${rk ? `${rk.r} / ${rk.n} (Q${rk.q})` : "–"}</td><td>${fmtP(windowMaxFall(ser, w.from, w.to))}</td>`;
+    }
+    h += `<tr class="fund">${row}<td><button class="btn small" data-del="${k}" title="remove window">×</button></td></tr>`;
+  });
+  h += `</tbody></table>`;
+  $("#stressTable").innerHTML = h;
+  $("#stressTable").onclick = e => { const b = e.target.closest("button[data-del]"); if (!b) return; const l = stressList(); l.splice(+b.dataset.del, 1); store.set("stress", l); renderStress(f, ser, file); };
+  $("#stressAdd").onclick = () => {
+    const name = $("#stName").value.trim() || "My window", from = $("#stFrom").value, to = $("#stTo").value;
+    if (!from || !to || from >= to) { alert("Pick a From date that is before the To date."); return; }
+    const l = stressList(); l.push({ name, from, to }); l.sort((a, b) => a.from.localeCompare(b.from)); store.set("stress", l); renderStress(f, ser, file);
+  };
+  $("#stressReset").onclick = () => { store.set("stress", STRESS_DEFAULT); renderStress(f, ser, file); };
+}
+
+/* ---------- Category league tab: categories by year + dispersion ---------- */
+async function renderLeague() {
+  const tok = ++renderToken, s = settings(), cats = selectedCats();
+  const el = $("#leagueBody");
+  if (!cats.length) { el.innerHTML = `<div class="card empty">Select asset classes and categories at the top (tip: Category → Select all).</div>`; return; }
+  await loadMany(cats.map(c => [c, s.plan]));
+  const calcs = []; for (const c of cats) { const k = await calcCategory(c, s.plan, s); if (k && k.rows.size) calcs.push(k); }
+  if (tok !== renderToken) return;
+  const stat = store.get("lgStat", "avg"), view = store.get("lgView", "table"), nY = +store.get("lgYears", 10), dper = store.get("dispP", "1Y");
+  const Y = +s.end.slice(0, 4), cols = [{ key: "tr:YTD", label: `YTD ${Y}` }];
+  for (let y = Y - 1; y >= Y - nY; y--) cols.push({ key: "cy:" + y, label: String(y) });
+  const acs = [...new Set(calcs.map(c => c.ac))], acCol = Object.fromEntries(acs.map((a, i) => [a, SERIES()[i % 8]]));
+  el.innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:end">
+        <div><h2>Category league table</h2><p class="sub" style="margin:0">${stat === "avg" ? "Average" : "Median"} return of the funds in each category, by calendar year (${s.plan === "D" ? "Direct" : "Regular"} plan; YTD as on ${fmtD(s.end)}). ${view === "table" ? "Shading = rank among the categories shown in that year: blue best, red worst." : "Each column sorted best → worst; colour = asset class."}</p></div>
+        <div class="controls" style="margin:0">
+          <label>Value <select id="lgStat"><option value="avg" ${stat === "avg" ? "selected" : ""}>Category average</option><option value="med" ${stat === "med" ? "selected" : ""}>Category median</option></select></label>
+          <label>View <select id="lgView"><option value="table" ${view === "table" ? "selected" : ""}>Table</option><option value="rank" ${view === "rank" ? "selected" : ""}>Ranked by year</option></select></label>
+          <label>Years <select id="lgYears">${[5, 10, 15].map(n => `<option ${n === nY ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+        </div></div>
+      <div class="tablewrap" id="lgTable" style="margin-top:10px"></div>
+      ${view === "rank" ? `<div class="legendq" style="margin-top:8px">${acs.map(a => `<span><span class="sw" style="background:${acCol[a]}"></span> ${esc(a)}</span>`).join("")}</div>` : ""}
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:end">
+        <div><h2>Return dispersion: how much does fund choice matter?</h2><p class="sub" style="margin:0">For each category: worst fund ← 25th percentile ▮ median ▮ 75th percentile → best fund. Sorted by the gap between best and worst. A wide box means picking the right fund matters a lot.</p></div>
+        <label style="font-size:12px;color:var(--ink-2)">Period <select id="dispP">${["1Y", "3Y", "5Y", "10Y", ...Array.from({ length: 5 }, (_, i) => String(Y - 1 - i))].map(p => `<option value="${p}" ${p === dper ? "selected" : ""}>${/^\d{4}$/.test(p) ? "Calendar " + p : p}</option>`).join("")}</select></label>
+      </div>
+      <div id="dispChart"></div><div class="tablewrap" id="dispTable" style="margin-top:10px"></div>
+    </div>`;
+  $("#lgStat").onchange = e => { store.set("lgStat", e.target.value); renderLeague(); };
+  $("#lgView").onchange = e => { store.set("lgView", e.target.value); renderLeague(); };
+  $("#lgYears").onchange = e => { store.set("lgYears", e.target.value); renderLeague(); };
+  $("#dispP").onchange = e => { store.set("dispP", e.target.value); renderLeague(); };
+  // league table
+  const val = (c, key) => c.stats[key]?.[stat];
+  if (view === "table") {
+    let h = `<table><thead><tr><th class="l name">Category</th><th class="l">Asset class</th><th>Funds</th>${cols.map(c => `<th>${c.label}</th>`).join("")}</tr></thead><tbody>`;
+    const rankCol = {}; cols.forEach(c => { const v = new Map(calcs.map(k => [k.cat, val(k, c.key)])); rankCol[c.key] = rankMap(v); });
+    calcs.slice().sort((a, b) => (a.ac + a.name).localeCompare(b.ac + b.name)).forEach(k => {
+      h += `<tr class="fund"><td class="l name">${esc(k.name)}</td><td class="l">${esc(k.ac)}</td><td>${k.rows.size}</td>`;
+      cols.forEach(c => { const v = val(k, c.key), rk = rankCol[c.key].get(k.cat); if (v == null) { h += `<td>–</td>`; return; }
+        const t = rk.n > 1 ? 1 - 2 * (rk.r - 1) / (rk.n - 1) : 0, [bg, fg] = divColor(t * 0.85);
+        h += `<td style="background:${bg};color:${fg}" title="${esc(k.name)} ${c.label}: rank ${rk.r} of ${rk.n} categories">${fmtP(v)}</td>`; });
+      h += `</tr>`;
+    });
+    $("#lgTable").innerHTML = h + `</tbody></table>`;
+  } else {
+    const sortedCols = cols.map(c => calcs.map(k => ({ k, v: val(k, c.key) })).filter(x => x.v != null).sort((a, b) => b.v - a.v));
+    const rows = Math.max(...sortedCols.map(x => x.length), 0);
+    let h = `<table><thead><tr><th class="l">Rank</th>${cols.map(c => `<th class="l">${c.label}</th>`).join("")}</tr></thead><tbody>`;
+    for (let r = 0; r < rows; r++) {
+      h += `<tr><td class="l">${r + 1}</td>`;
+      sortedCols.forEach(sc => { const x = sc[r]; h += x ? `<td class="l" style="border-left:4px solid ${acCol[x.k.ac]};font-size:11.5px;line-height:1.25" title="${esc(x.k.ac)}"><b>${esc(x.k.name)}</b><br>${fmtP(x.v)}</td>` : `<td></td>`; });
+      h += `</tr>`;
+    }
+    $("#lgTable").innerHTML = h + `</tbody></table>`;
+  }
+  // dispersion
+  const key = /^\d{4}$/.test(dper) ? "cy:" + dper : "tr:" + dper;
+  const disp = calcs.map(k => { const a = [...k.rows.values()].map(m => k.get(m, key)).filter(v => v != null && isFinite(v)).sort((x, y) => x - y);
+    return a.length < 2 ? null : { k, n: a.length, min: a[0], p25: quantile(a, 0.25), med: quantile(a, 0.5), p75: quantile(a, 0.75), max: a[a.length - 1] }; })
+    .filter(Boolean).sort((a, b) => (b.max - b.min) - (a.max - a.min));
+  if (!disp.length) { $("#dispChart").innerHTML = `<div class="empty">No category has at least two funds with ${dper} returns.</div>`; $("#dispTable").innerHTML = ""; return; }
+  const rev = disp.slice().reverse();
+  plot("dispChart", [{ type: "box", orientation: "h", y: rev.map(d => d.k.name), q1: rev.map(d => d.p25 * 100), median: rev.map(d => d.med * 100), q3: rev.map(d => d.p75 * 100),
+      lowerfence: rev.map(d => d.min * 100), upperfence: rev.map(d => d.max * 100), boxpoints: false, fillcolor: "rgba(42,120,214,0.25)", line: { color: SERIES()[0], width: 1.5 }, whiskerwidth: 0.4, name: "", hoverinfo: "x" }],
+    { height: Math.max(260, rev.length * 26 + 70), hovermode: "closest", margin: { l: 220, r: 20, t: 10, b: 40 }, showlegend: false, xaxis: { ticksuffix: "%", zeroline: true }, yaxis: { automargin: true, gridcolor: "rgba(0,0,0,0)", tickfont: { size: 11, color: css("--ink-2") } } });
+  $("#dispTable").innerHTML = `<table><thead><tr><th class="l">Category</th><th>Funds</th><th>Worst</th><th>25th pct</th><th>Median</th><th>75th pct</th><th>Best</th><th>Best − worst</th><th>75th − 25th</th></tr></thead><tbody>` +
+    disp.map(d => `<tr class="fund"><td class="l">${esc(d.k.name)}</td><td>${d.n}</td><td>${fmtP(d.min)}</td><td>${fmtP(d.p25)}</td><td>${fmtP(d.med)}</td><td>${fmtP(d.p75)}</td><td>${fmtP(d.max)}</td><td><b>${fmtP(d.max - d.min)}</b></td><td>${fmtP(d.p75 - d.p25)}</td></tr>`).join("") + `</tbody></table>`;
 }
 
 /* ============================== FUND DETAILS ============================== */
@@ -746,6 +998,19 @@ async function renderFund() {
       <div class="card"><h2>Trailing returns vs category</h2><p class="sub">≤1Y absolute, >1Y CAGR · as on ${fmtD(s.end)}${s.me ? " (month-end)" : ""}</p><div class="tablewrap" id="fundTr"></div></div>
       <div class="card"><h2>Calendar years and risk vs category</h2><p class="sub">Rank among funds that existed for the full year · risk over ${s.riskP} (${s.riskF === "M" ? "monthly" : "daily"} returns), beta vs ${esc($("#fBench").selectedOptions[0]?.text)}</p><div class="tablewrap" id="fundCal"></div></div>
     </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:end">
+        <div><h2>Underwater chart (drawdown)</h2><p class="sub" style="margin:0">How far below its previous highest NAV the fund was on each day (peak measured from the first NAV), vs the category-average index</p></div>
+        <div class="seg" id="uwQuick"></div></div><div id="uwChart"></div></div>
+    <div class="card"><h2>Worst 5 drawdowns</h2><p class="sub">Fall from a peak to the lowest NAV, and how long it took to get back to that peak (full history up to ${fmtD(s.end)})</p><div class="tablewrap" id="ddTable"></div></div>
+    <div class="card"><h2>Behaviour in market stress windows</h2><p class="sub">Absolute return between the two dates (fund vs the average of all funds in its category, ${f.pl === "D" ? "Direct" : "Regular"} plan). Preset dates are approximate Nifty 50 peaks/troughs; delete them or add your own.</p>
+      <div class="tablewrap" id="stressTable"></div>
+      <div class="controls" style="margin:10px 0 0">
+        <label>Name <input type="text" id="stName" placeholder="e.g. Election week" style="width:200px"></label>
+        <label>From <input type="date" id="stFrom"></label><label>To <input type="date" id="stTo"></label>
+        <button class="btn small" id="stressAdd" style="align-self:end">+ Add window</button>
+        <button class="btn small" id="stressReset" style="align-self:end">Reset to presets</button>
+      </div></div>
     <div class="card"><h2>Monthly returns</h2><p class="sub">Month-end to month-end NAV change · blue gain, red loss · last column = calendar-year return (current year = YTD)</p><div class="tablewrap" id="fundHeat" style="max-height:none"></div></div>`;
   const drawGrowth = () => {
     let from = fundRange === "MAX" ? ser.d[0] : shift(s.end, { years: -+fundRange }); if (from < ser.d[0]) from = ser.d[0];
@@ -780,6 +1045,7 @@ async function renderFund() {
     hm += `</tr>`;
   }
   $("#fundHeat").innerHTML = hm + "</tbody></table>";
+  renderDrawdowns(f, ser, file, s);
 }
 
 /* ============================== wiring ============================== */
@@ -789,7 +1055,7 @@ function showTab(t) {
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + t));
   store.set("tab", t); rerender();
 }
-function rerender() { const t = currentTab(); (t === "cat" ? renderCategory : t === "amc" ? renderAmc : t === "cmp" ? renderCompare : renderFund)(); }
+function rerender() { const t = currentTab(); (t === "cat" ? renderCategory : t === "amc" ? renderAmc : t === "cmp" ? renderCompare : t === "league" ? renderLeague : renderFund)(); }
 function openFund(code) { S.fund = code; showTab("fund"); }
 function saveFilters() { store.set("filters", { plan: $("#fPlan").value, ac: fAc.value, cat: fCat.value, date: $("#fDate").value, me: $("#fME").checked, riskP: $("#fRiskP").value, riskF: $("#fRiskF").value, bench: $("#fBench").value, per: cPer.value, years: $("#cYears").value, risk: $("#cRisk").checked }); }
 function catOptions() {
