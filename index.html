@@ -86,6 +86,10 @@ tbody tr.fund:hover td { background:var(--hover); }
 .q1 { background:var(--q1) !important; } .q2 { background:var(--q2) !important; } .q3 { background:var(--q3) !important; } .q4 { background:var(--q4) !important; }
 .legendq { display:flex; gap:10px; align-items:center; font-size:12px; color:var(--ink-2); flex-wrap:wrap; }
 .legendq span.sw { display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-3px; margin-right:4px; border:1px solid var(--border); }
+.searchbox { position:relative; }
+.searchbox input { width:260px; padding-left:30px; font:inherit; font-size:13px; color:var(--ink); background:var(--surface); border:1px solid var(--border); border-radius:8px; min-height:32px; }
+.searchbox::before { content:"⌕"; position:absolute; left:10px; top:50%; transform:translateY(-52%); color:var(--muted); font-size:16px; pointer-events:none; }
+.searchbox input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
 .picker { position:relative; min-width:320px; }
 .picker input { width:100%; }
 .picker .list { position:absolute; top:100%; left:0; right:0; z-index:30; background:var(--surface); border:1px solid var(--border); border-radius:8px; margin-top:4px; max-height:340px; overflow:auto; display:none; box-shadow:0 8px 24px rgba(0,0,0,.12); }
@@ -147,22 +151,22 @@ a.fl { color:var(--ink); text-decoration:none; } a.fl:hover { text-decoration:un
       <label>Return periods <div class="ms" id="cPer"></div></label>
       <label>Calendar years <select id="cYears"><option value="0">None</option><option value="3">Last 3</option><option value="5" selected>Last 5</option><option value="10">Last 10</option></select></label>
       <label class="chk" style="flex-direction:row;align-items:center;gap:6px;font-size:13px;color:var(--ink);padding-bottom:7px"><input type="checkbox" id="cRisk" checked> Risk (SD, Beta, Max DD)</label>
-      <label>Search fund <input type="text" id="cSearch" placeholder="part of a name"></label>
       <span style="flex:1"></span>
       <button class="btn" id="csvBtn">Download CSV</button>
       <button class="btn primary" id="toCompare" disabled>Compare selected (0)</button>
     </div>
     <div id="catChartCard"></div>
-    <div id="catScatter"></div>
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-        <div><h2 id="catTitle">Funds</h2><p class="sub" style="margin:0" id="catSub"></p></div>
-        <div class="legendq">Shading = quartile in category:
-          <span><span class="sw q1" style="border-radius:3px;width:14px;height:14px"></span>Q1 top 25%</span><span><span class="sw q2" style="border-radius:3px;width:14px;height:14px"></span>Q2</span>
-          <span><span class="sw q3" style="border-radius:3px;width:14px;height:14px"></span>Q3</span><span><span class="sw q4" style="border-radius:3px;width:14px;height:14px"></span>Q4 bottom 25%</span> · (n) = rank in category</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+        <div style="flex:1;min-width:300px"><h2 id="catTitle">Funds</h2><p class="sub" style="margin:0" id="catSub"></p></div>
+        <div class="searchbox"><input type="search" id="cSearch" placeholder="Search fund…" aria-label="Search fund in this table"></div>
       </div>
+      <div class="legendq" style="margin-bottom:8px">Shading = quartile in category:
+        <span><span class="sw q1" style="border-radius:3px;width:14px;height:14px"></span>Q1 top 25%</span><span><span class="sw q2" style="border-radius:3px;width:14px;height:14px"></span>Q2</span>
+        <span><span class="sw q3" style="border-radius:3px;width:14px;height:14px"></span>Q3</span><span><span class="sw q4" style="border-radius:3px;width:14px;height:14px"></span>Q4 bottom 25%</span> · (n) = rank in category</div>
       <div class="tablewrap" id="catTable"></div>
     </div>
+    <div id="catScatter"></div>
   </section>
 
   <!-- ================= AMC VIEW ================= -->
@@ -560,9 +564,9 @@ async function renderCategory() {
   for (const c of cats) { const calc = await calcCategory(c, s.plan, s); if (!calc || !calc.rows.size) continue; const codes = [...calc.rows.keys()].filter(code => !q || S.byCode.get(code).n.toLowerCase().includes(q)); if (codes.length) groups.push({ calc, codes }); }
   if (tok !== renderToken) return;
   const nF = groups.reduce((a, g) => a + g.codes.length, 0);
-  $("#catTitle").textContent = `${nF} funds in ${groups.length} categor${groups.length === 1 ? "y" : "ies"}`;
+  $("#catTitle").textContent = `${nF} fund${nF === 1 ? "" : "s"} in ${groups.length} categor${groups.length === 1 ? "y" : "ies"}${q ? ` matching “${$("#cSearch").value.trim()}”` : ""}`;
   $("#catSub").textContent = `${s.plan === "D" ? "Direct" : "Regular"} plan · Growth · returns as on ${fmtD(s.end)}${s.me ? " (month-end)" : ""}${s.note} · risk over ${s.riskP} to the same date. Click a header to sort; tick funds to compare; click a name for details.`;
-  el.innerHTML = groups.length ? tableHTML(groups, s) : `<div class="empty">No fund has a NAV on ${fmtD(s.end)} in this selection.</div>`;
+  el.innerHTML = groups.length ? tableHTML(groups, s) : `<div class="empty">${q ? `No fund matches “${esc($("#cSearch").value.trim())}”.` : `No fund has a NAV on ${fmtD(s.end)} in this selection.`}</div>`;
   wireTable(el, renderCategory);
   updatePickBtn();
   renderScatter(groups, s);
