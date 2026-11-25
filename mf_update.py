@@ -22,6 +22,174 @@ EXCLUDE_NAME_WORDS = ["segregated", "unclaimed"]
 
 TRAILING_PERIODS = ["1W", "1M", "3M", "6M", "YTD", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "SI"]
 DAYS_IN_YEAR = 365                  # CAGR = (NAV1/NAV0) ** (365 / days) - 1
+
+# Benchmarks (NSE Total Return Indices, downloaded from niftyindices.com) - Equity categories only.
+# Category names are as AMFI writes them (shown in the dashboard's Category list).
+BENCHMARKS = {
+    "Large Cap": "NIFTY 100",
+    "Mid Cap": "NIFTY MIDCAP 150",
+    "Small Cap": "NIFTY SMALLCAP 250",
+}
+EQUITY_DEFAULT_BENCHMARK = "NIFTY 500"   # every other Equity category (Flexi, Focused, Contra, Value, ELSS, ...)
+BENCHMARK_HISTORY_FROM = "2005-04-01"    # index history is downloaded from this date (or the index's start, if later)
+BENCHMARK_WORKERS = 2                    # indices downloaded in parallel
+
+# All NSE equity Total Return Indices: (index name, name NSE's download service expects, group, index base date)
+NSE_INDICES = [
+    ("NIFTY 500", "NIFTY 500", "Broad market", "1995-01-01"),
+    ("NIFTY 50", "NIFTY 50", "Broad market", "1995-11-03"),
+    ("NIFTY NEXT 50", "NIFTY NEXT 50", "Broad market", "1996-11-04"),
+    ("NIFTY 100", "NIFTY 100", "Broad market", "2003-01-01"),
+    ("NIFTY MIDCAP 100", "NIFTY MIDCAP 100", "Broad market", "2003-01-01"),
+    ("NIFTY 200", "NIFTY 200", "Broad market", "2004-01-01"),
+    ("NIFTY MIDCAP 50", "NIFTY MIDCAP 50", "Broad market", "2004-01-01"),
+    ("NIFTY SMALLCAP 100", "NIFTY SMLCAP 100", "Broad market", "2004-01-01"),
+    ("NIFTY LARGEMIDCAP 250", "NIFTY LARGEMID250", "Broad market", "2005-04-01"),
+    ("NIFTY MICROCAP 250", "NIFTY MICROCAP250", "Broad market", "2005-04-01"),
+    ("NIFTY MIDCAP 150", "NIFTY MIDCAP 150", "Broad market", "2005-04-01"),
+    ("NIFTY MIDSMALLCAP 400", "NIFTY MIDSMALLCAP 400", "Broad market", "2005-04-01"),
+    ("NIFTY MIDSMALLCAP400 50:50", "NIFTY MIDSMALLCAP400 50:50", "Broad market", "2005-04-01"),
+    ("NIFTY SMALLCAP 250", "NIFTY SMALLCAP 250", "Broad market", "2005-04-01"),
+    ("NIFTY SMALLCAP 50", "NIFTY SMALLCAP 50", "Broad market", "2005-04-01"),
+    ("NIFTY SMALLCAP 500", "NIFTY SMALLCAP 500", "Broad market", "2005-04-01"),
+    ("NIFTY TOTAL MARKET", "NIFTY TOTAL MKT", "Broad market", "2005-04-01"),
+    ("NIFTY500 LARGEMIDSMALL EQUAL-CAP WEIGHTED", "NIFTY500 LARGEMIDSMALL EQUAL-CAP WEIGHTED", "Broad market", "2005-04-01"),
+    ("NIFTY500 MULTICAP 50:25:25", "NIFTY500 MULTICAP", "Broad market", "2005-04-01"),
+    ("NIFTY MIDCAP SELECT", "NIFTY MID SELECT", "Broad market", "2005-10-03"),
+    ("NIFTY NEXT 100", "NIFTY NEXT 100", "Broad market", "2010-10-01"),
+    ("NIFTY INDIA FPI 150", "NIFTY INDIA FPI 150", "Broad market", "2022-10-03"),
+    ("NIFTY FMCG", "NIFTY FMCG", "Sector", "1996-01-01"),
+    ("NIFTY IT", "NIFTY IT", "Sector", "1996-01-01"),
+    ("NIFTY BANK", "NIFTY BANK", "Sector", "2000-01-01"),
+    ("NIFTY PHARMA", "NIFTY PHARMA", "Sector", "2001-01-01"),
+    ("NIFTY AUTO", "NIFTY AUTO", "Sector", "2004-01-01"),
+    ("NIFTY FINANCIAL SERVICES", "NIFTY FIN SERVICE", "Sector", "2004-01-01"),
+    ("NIFTY FINANCIAL SERVICES 25/50", "NIFTY FINSRV25 50", "Sector", "2004-01-01"),
+    ("NIFTY METAL", "NIFTY METAL", "Sector", "2004-01-01"),
+    ("NIFTY PSU BANK", "NIFTY PSU BANK", "Sector", "2004-01-01"),
+    ("NIFTY HEALTHCARE", "NIFTY HEALTHCARE", "Sector", "2004-04-01"),
+    ("NIFTY PRIVATE BANK", "NIFTY PVT BANK", "Sector", "2004-05-01"),
+    ("NIFTY CAPITAL GOODS", "NIFTY CAPITAL GOODS", "Sector", "2005-04-01"),
+    ("NIFTY CEMENT", "NIFTY CEMENT", "Sector", "2005-04-01"),
+    ("NIFTY CHEMICALS", "NIFTY CHEMICALS", "Sector", "2005-04-01"),
+    ("NIFTY COMMERCIAL & TRANSPORT SERVICES", "NIFTY COMMERCIAL & TRANSPORT SERVICES", "Sector", "2005-04-01"),
+    ("NIFTY CONSTRUCTION", "NIFTY CONSTRUCTION", "Sector", "2005-04-01"),
+    ("NIFTY CONSUMER DURABLES", "NIFTY CONSR DURBL", "Sector", "2005-04-01"),
+    ("NIFTY FINANCIAL SERVICES EX-BANK", "NIFTY FINANCIAL SERVICES EX-BANK", "Sector", "2005-04-01"),
+    ("NIFTY MIDSMALL FINANCIAL SERVICES", "NIFTY MIDSMALL FINANCIAL SERVICES", "Sector", "2005-04-01"),
+    ("NIFTY MIDSMALL HEALTHCARE", "NIFTY MIDSML HLTH", "Sector", "2005-04-01"),
+    ("NIFTY MIDSMALL IT & TELECOM", "NIFTY MIDSMALL IT & TELECOM", "Sector", "2005-04-01"),
+    ("NIFTY NBFC", "NIFTY NBFC", "Sector", "2005-04-01"),
+    ("NIFTY OIL & GAS", "NIFTY OIL AND GAS", "Sector", "2005-04-01"),
+    ("NIFTY POWER", "NIFTY POWER", "Sector", "2005-04-01"),
+    ("NIFTY TELECOMMUNICATIONS", "NIFTY TELECOMMUNICATIONS", "Sector", "2005-04-01"),
+    ("NIFTY500 HEALTHCARE", "NIFTY500 HEALTHCARE", "Sector", "2005-04-01"),
+    ("NIFTY MEDIA", "NIFTY MEDIA", "Sector", "2005-12-30"),
+    ("NIFTY REALTY", "NIFTY REALTY", "Sector", "2006-12-29"),
+    ("NIFTY HOUSING FINANCE", "NIFTY HOUSING FINANCE", "Sector", "2018-04-02"),
+    ("NIFTY RETAIL", "NIFTY RETAIL", "Sector", "2018-04-02"),
+    ("NIFTY INSURANCE", "NIFTY INSURANCE", "Sector", "2019-09-27"),
+    ("NIFTY CONSUMER SERVICES", "NIFTY CONSUMER SERVICES", "Sector", "2020-07-01"),
+    ("NIFTY HOSPITALS", "NIFTY HOSPITALS", "Sector", "2021-03-31"),
+    ("NIFTY REITS & REALTY", "NIFTY REITS & REALTY", "Sector", "2021-07-01"),
+    ("NIFTY MNC", "NIFTY MNC", "Thematic", "1994-12-31"),
+    ("NIFTY PSE", "NIFTY PSE", "Thematic", "1995-01-01"),
+    ("NIFTY SERVICES SECTOR", "NIFTY SERV SECTOR", "Thematic", "1999-06-01"),
+    ("NIFTY ENERGY", "NIFTY ENERGY", "Thematic", "2001-01-01"),
+    ("NIFTY COMMODITIES", "NIFTY COMMODITIES", "Thematic", "2004-01-01"),
+    ("NIFTY INFRASTRUCTURE", "NIFTY INFRA", "Thematic", "2004-01-01"),
+    ("NIFTY CONGLOMERATE 50", "NIFTY CONGLOMERATE 50", "Thematic", "2005-04-01"),
+    ("NIFTY CORE HOUSING", "NIFTY CORE HOUSING", "Thematic", "2005-04-01"),
+    ("NIFTY HOUSING", "NIFTY HOUSING", "Thematic", "2005-04-01"),
+    ("NIFTY INDIA CORPORATE GROUP INDEX - ADITYA BIRLA GROUP", "NIFTY INDIA CORPORATE GROUP INDEX - ADITYA BIRLA GROUP", "Thematic", "2005-04-01"),
+    ("NIFTY INDIA CORPORATE GROUP INDEX - MAHINDRA GROUP", "NIFTY INDIA CORPORATE GROUP INDEX - MAHINDRA GROUP", "Thematic", "2005-04-01"),
+    ("NIFTY INDIA CORPORATE GROUP INDEX - TATA GROUP", "NIFTY INDIA CORPORATE GROUP INDEX - TATA GROUP", "Thematic", "2005-04-01"),
+    ("NIFTY INDIA CORPORATE GROUP INDEX - TATA GROUP 25% CAP", "NIFTY TATA 25 CAP", "Thematic", "2005-04-01"),
+    ("NIFTY INDIA DIGITAL", "NIFTY IND DIGITAL", "Thematic", "2005-04-01"),
+    ("NIFTY INDIA INFRASTRUCTURE & LOGISTICS", "NIFTY INDIA INFRASTRUCTURE & LOGISTICS", "Thematic", "2005-04-01"),
+    ("NIFTY INDIA MANUFACTURING", "NIFTY INDIA MFG", "Thematic", "2005-04-01"),
+    ("NIFTY INDIA NEW AGE CONSUMPTION", "NIFTY INDIA NEW AGE CONSUMPTION", "Thematic", "2005-04-01"),
+    ("NIFTY INDIA SELECT 5 CORPORATE GROUPS (MAATR)", "NIFTY INDIA SELECT 5 CORPORATE GROUPS (MAATR)", "Thematic", "2005-04-01"),
+    ("NIFTY INDIA TOURISM", "NIFTY INDIA TOURISM", "Thematic", "2005-04-01"),
+    ("NIFTY MIDSMALL INDIA CONSUMPTION", "NIFTY MIDSMALL INDIA CONSUMPTION", "Thematic", "2005-04-01"),
+    ("NIFTY MOBILITY", "NIFTY MOBILITY", "Thematic", "2005-04-01"),
+    ("NIFTY NON-CYCLICAL CONSUMER", "NIFTY NON-CYCLICAL CONSUMER", "Thematic", "2005-04-01"),
+    ("NIFTY RURAL", "NIFTY RURAL", "Thematic", "2005-04-01"),
+    ("NIFTY TRANSPORTATION & LOGISTICS", "NIFTY TRANSPORTATION & LOGISTICS", "Thematic", "2005-04-01"),
+    ("NIFTY WAVES", "NIFTY WAVES", "Thematic", "2005-04-01"),
+    ("NIFTY500 MULTICAP INDIA MANUFACTURING 50:30:20", "NIFTY MULTI MFG", "Thematic", "2005-04-01"),
+    ("NIFTY500 MULTICAP INFRASTRUCTURE 50:30:20", "NIFTY MULTI INFRA", "Thematic", "2005-04-01"),
+    ("NIFTY INDIA CONSUMPTION", "NIFTY CONSUMPTION", "Thematic", "2006-01-02"),
+    ("NIFTY50 SHARIAH", "NIFTY50 SHARIAH", "Thematic", "2006-12-29"),
+    ("NIFTY500 SHARIAH", "NIFTY500 SHARIAH", "Thematic", "2006-12-29"),
+    ("NIFTY CPSE", "NIFTY CPSE", "Thematic", "2009-01-01"),
+    ("NIFTY MIDCAP LIQUID 15", "NIFTY MID LIQ 15", "Thematic", "2009-01-01"),
+    ("NIFTY SHARIAH 25", "NIFTY SHARIAH 25", "Thematic", "2009-01-01"),
+    ("NIFTY100 LIQUID 15", "NIFTY100 LIQ 15", "Thematic", "2009-01-01"),
+    ("NIFTY100 ENHANCED ESG", "NIFTY100 ENHANCED ESG", "Thematic", "2011-04-01"),
+    ("NIFTY100 ESG", "NIFTY100 ESG", "Thematic", "2011-04-01"),
+    ("NIFTY100 ESG SECTOR LEADERS", "NIFTY100ESGSECLDR", "Thematic", "2014-01-01"),
+    ("NIFTY500 AHIMSA", "NIFTY500 AHIMSA", "Thematic", "2016-04-01"),
+    ("NIFTY SME EMERGE", "NIFTY SME EMERGE", "Thematic", "2016-12-01"),
+    ("NIFTY IPO", "NIFTY IPO", "Thematic", "2017-01-02"),
+    ("NIFTY EV & NEW AGE AUTOMOTIVE", "NIFTY EV & NEW AGE AUTOMOTIVE", "Thematic", "2018-04-02"),
+    ("NIFTY INDIA DEFENCE", "NIFTY INDIA DEFENCE", "Thematic", "2018-04-02"),
+    ("NIFTY INDIA DEFENCE EQUAL WEIGHT", "NIFTY INDIA DEFENCE EQUAL WEIGHT", "Thematic", "2018-04-02"),
+    ("NIFTY CAPITAL MARKETS", "NIFTY CAPITAL MARKETS", "Thematic", "2019-04-01"),
+    ("NIFTY REITS & INVITS", "NIFTY REITS & INVITS", "Thematic", "2019-07-01"),
+    ("NIFTY SMALL FINANCE BANKS & MICROFINANCE INSTITUTIONS", "NIFTY SMALL FINANCE BANKS & MICROFINANCE INSTITUTIONS", "Thematic", "2021-03-31"),
+    ("NIFTY SUGAR & ETHANOL", "NIFTY SUGAR & ETHANOL", "Thematic", "2021-03-31"),
+    ("NIFTY INDIA RAILWAYS PSU", "NIFTY INDIA RAILWAYS PSU", "Thematic", "2021-04-01"),
+    ("NIFTY REITS & INVITS 90:10", "NIFTY REITS & INVITS 90:10", "Thematic", "2021-04-01"),
+    ("NIFTY INDIA INTERNET", "NIFTY INDIA INTERNET", "Thematic", "2021-10-01"),
+    ("NIFTY AI CATALYSTS", "NIFTY AI CATALYSTS", "Thematic", "2024-06-28"),
+    ("NIFTY50 EQUAL WEIGHT", "NIFTY50 EQL WGT", "Strategy", "1995-11-03"),
+    ("NIFTY50 USD", "NON OPEN SOURCE", "Strategy", "1995-11-03"),
+    ("NIFTY100 EQUAL WEIGHT", "NIFTY100 EQL WGT", "Strategy", "2003-01-01"),
+    ("NIFTY ALPHA 50", "NIFTY ALPHA 50", "Strategy", "2003-12-31"),
+    ("NIFTY HIGH BETA 50", "NIFTY HIGH BETA 50", "Strategy", "2003-12-31"),
+    ("NIFTY LOW VOLATILITY 50", "NIFTY LOW VOLATILITY 50", "Strategy", "2003-12-31"),
+    ("NIFTY 50 FUTURES PR", "NON OPEN SOURCE", "Strategy", "2005-04-01"),
+    ("NIFTY 50 FUTURES TR", "NIFTY 50 FUTURES TR INDEX", "Strategy", "2005-04-01"),
+    ("NIFTY ALPHA LOW-VOLATILITY 30", "NIFTY ALPHALOWVOL", "Strategy", "2005-04-01"),
+    ("NIFTY ALPHA QUALITY LOW-VOLATILITY 30", "NIFTY ALPHA QUALITY LOW-VOLATILITY 30", "Strategy", "2005-04-01"),
+    ("NIFTY ALPHA QUALITY VALUE LOW-VOLATILITY 30", "NIFTY ALPHA QUALITY VALUE LOW-VOLATILITY 30", "Strategy", "2005-04-01"),
+    ("NIFTY HIGH DIVIDEND YIELD 15", "NIFTY HIGH DIVIDEND YIELD 15", "Strategy", "2005-04-01"),
+    ("NIFTY MIDCAP150 MOMENTUM 50", "NIFTY MIDCAP150 MOMENTUM 50", "Strategy", "2005-04-01"),
+    ("NIFTY MIDCAP150 QUALITY 50", "NIFTY M150 QLTY50", "Strategy", "2005-04-01"),
+    ("NIFTY MIDSMALLCAP400 MOMENTUM QUALITY 100", "NIFTY MIDSMALLCAP400 MOMENTUM QUALITY 100", "Strategy", "2005-04-01"),
+    ("NIFTY QUALITY LOW-VOLATILITY 30", "NIFTY QUALITY LOW-VOLATILITY 30", "Strategy", "2005-04-01"),
+    ("NIFTY SMALLCAP250 MOMENTUM QUALITY 100", "NIFTY SMALLCAP250 MOMENTUM QUALITY 100", "Strategy", "2005-04-01"),
+    ("NIFTY SMALLCAP250 QUALITY 50", "NIFTY SML250 Q50", "Strategy", "2005-04-01"),
+    ("NIFTY TOTAL MARKET MOMENTUM QUALITY 50", "NIFTY TOTAL MARKET MOMENTUM QUALITY 50", "Strategy", "2005-04-01"),
+    ("NIFTY100 ALPHA 30", "NIFTY100 ALPHA 30", "Strategy", "2005-04-01"),
+    ("NIFTY100 LOW VOLATILITY 30", "NIFTY100 LOWVOL30", "Strategy", "2005-04-01"),
+    ("NIFTY200 ALPHA 30", "NIFTY200 ALPHA 30", "Strategy", "2005-04-01"),
+    ("NIFTY200 MOMENTUM 30", "NIFTY200MOMENTM30", "Strategy", "2005-04-01"),
+    ("NIFTY200 QUALITY 30", "NIFTY200 QUALITY 30", "Strategy", "2005-04-01"),
+    ("NIFTY200 VALUE 30", "NIFTY200 VALUE 30", "Strategy", "2005-04-01"),
+    ("NIFTY500 EQUAL WEIGHT", "NIFTY500 EQUAL WEIGHT", "Strategy", "2005-04-01"),
+    ("NIFTY500 GROWTH 50", "NIFTY500 GROWTH 50", "Strategy", "2005-04-01"),
+    ("NIFTY500 LOW VOLATILITY 50", "NIFTY500 LOWVOL50", "Strategy", "2005-04-01"),
+    ("NIFTY500 MOMENTUM 50", "NIFTY500 MOMENTUM 50", "Strategy", "2005-04-01"),
+    ("NIFTY500 MULTICAP MOMENTUM QUALITY 50", "NIFTY500 MULTICAP MOMENTUM QUALITY 50", "Strategy", "2005-04-01"),
+    ("NIFTY500 MULTIFACTOR MQVLV 50", "NIFTY500 MQVLV50", "Strategy", "2005-04-01"),
+    ("NIFTY500 QUALITY 50", "NIFTY500 QLTY50", "Strategy", "2005-04-01"),
+    ("NIFTY500 VALUE 50", "NIFTY500 VALUE 50", "Strategy", "2005-04-01"),
+    ("NIFTY TOP 10 EQUAL WEIGHT", "NIFTY TOP 10 EQUAL WEIGHT", "Strategy", "2006-03-02"),
+    ("NIFTY TOP 15 EQUAL WEIGHT", "NIFTY TOP 15 EQUAL WEIGHT", "Strategy", "2006-03-02"),
+    ("NIFTY TOP 20 EQUAL WEIGHT", "NIFTY TOP 20 EQUAL WEIGHT", "Strategy", "2006-03-02"),
+    ("NIFTY DIVIDEND OPPORTUNITIES 50", "NIFTY DIV OPPS 50", "Strategy", "2007-10-01"),
+    ("NIFTY GROWTH SECTORS 15", "NIFTY GROWSECT 15", "Strategy", "2009-01-01"),
+    ("NIFTY50 VALUE 20", "NIFTY50 VALUE 20", "Strategy", "2009-01-01"),
+    ("NIFTY50 PR 1X INVERSE", "NON OPEN SOURCE", "Strategy", "2009-04-02"),
+    ("NIFTY50 PR 2X LEVERAGE", "NON OPEN SOURCE", "Strategy", "2009-04-02"),
+    ("NIFTY50 TR 1X INVERSE", "NON OPEN SOURCE", "Strategy", "2009-04-02"),
+    ("NIFTY50 TR 2X LEVERAGE", "NON OPEN SOURCE", "Strategy", "2009-04-02"),
+    ("NIFTY100 QUALITY 30", "NIFTY100 QUALTY30", "Strategy", "2009-10-01"),
+    ("NIFTY500 FLEXICAP QUALITY 30", "NIFTY500 FLEXICAP QUALITY 30", "Strategy", "2009-10-01"),
+    ("NIFTY 50 ARBITRAGE", "NON OPEN SOURCE", "Strategy", "2010-04-01"),
+]
 # ==================================================================
 
 # Advanced settings (normally leave as is)
@@ -60,6 +228,8 @@ log = logging.getLogger("mf")
 
 # ======================= 1. DATABASE =======================
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS bench_history (index_name TEXT NOT NULL, bdate TEXT NOT NULL, value REAL NOT NULL,
+  PRIMARY KEY (index_name, bdate)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS schemes (
   scheme_code INTEGER PRIMARY KEY, scheme_name TEXT, amc TEXT, scheme_type TEXT,
   asset_class TEXT, category TEXT, category_id TEXT, plan TEXT, option TEXT,
@@ -330,6 +500,174 @@ def step_history(con, extra_codes=()):
 
 
 
+# ======================= 3b. BENCHMARK INDICES (NSE TRI) =======================
+NIFTY_TRI_URLS = ["https://www.niftyindices.com/Backpage/getTotalReturnIndexString",
+                  "https://www.niftyindices.com/Backpage.aspx/getTotalReturnIndexString"]
+NIFTY_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36",
+    "Referer": "https://www.niftyindices.com/reports/historical-data",
+    "Origin": "https://www.niftyindices.com",
+    "X-Requested-With": "XMLHttpRequest",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Content-Type": "application/json; charset=UTF-8",
+}
+
+
+def benchmark_for(asset_class, category):
+    """Index name for a category, or None (benchmarks are mapped for Equity only)."""
+    if (asset_class or "").lower() != "equity":
+        return None
+    for k, v in BENCHMARKS.items():
+        if k.lower() == (category or "").strip().lower():
+            return v
+    return EQUITY_DEFAULT_BENCHMARK
+
+
+_IDX = {n: (api, grp, base) for n, api, grp, base in NSE_INDICES}
+
+
+def all_benchmarks():
+    return list(_IDX) + sorted((set(BENCHMARKS.values()) | {EQUITY_DEFAULT_BENCHMARK}) - set(_IDX))
+
+
+def api_name(index):
+    return _IDX.get(index, (index,))[0]
+
+
+_KEEP_UPPER = {"IT", "PSE", "PSU", "MNC", "FMCG", "CPSE", "ESG", "USD", "EV", "REITS", "INVITS", "SME", "BHARAT", "IPO", "AAA", "AA", "PR", "TR", "MAATR", "BFSI"}
+
+
+def bench_label(index_name):
+    words = [w if (w in _KEEP_UPPER or any(ch.isdigit() for ch in w) and not w.startswith("NIFTY")) else w.capitalize()
+             for w in index_name.split()]
+    return " ".join(words).replace("Nifty50", "Nifty50").replace("Nifty100", "Nifty100").replace("Nifty200", "Nifty200").replace("Nifty500", "Nifty500") + " TRI"
+
+
+def _nifty_session():
+    try:                                   # cloudscraper copes with Cloudflare checks if it is installed
+        import cloudscraper
+        s = cloudscraper.create_scraper()
+    except Exception:
+        s = requests.Session()
+    s.headers.update(NIFTY_HEADERS)
+    try:
+        s.get("https://www.niftyindices.com/reports/historical-data", timeout=30)   # picks up cookies
+    except Exception:
+        pass
+    return s
+
+
+def _parse_tri(rows):
+    out = []
+    for r in rows:
+        keys = {k.lower().replace(" ", "").replace("_", ""): k for k in r}
+        dk = keys.get("date") or keys.get("historicaldate")
+        vk = next((keys[k] for k in keys if "totalreturn" in k and "net" not in k), None)
+        if not dk or not vk:
+            continue
+        d = None
+        for fmt in ("%d %b %Y", "%d-%b-%Y", "%d %B %Y", "%Y-%m-%d", "%d-%m-%Y"):
+            try:
+                d = datetime.strptime(str(r[dk]).strip(), fmt).date()
+                break
+            except ValueError:
+                continue
+        try:
+            v = float(str(r[vk]).replace(",", ""))
+        except ValueError:
+            continue
+        if d and v > 0:
+            out.append((d.isoformat(), v))
+    return out
+
+
+def fetch_tri(sess, index, start, end):
+    """Daily TRI values for one index between two dates (inclusive)."""
+    api = api_name(index)
+    payload = json.dumps({"cinfo": json.dumps({"name": api, "startDate": start.strftime("%d-%b-%Y"),
+                                               "endDate": end.strftime("%d-%b-%Y"), "indexName": api})})
+    last = None
+    for url in NIFTY_TRI_URLS:
+        try:
+            r = sess.post(url, data=payload, timeout=60)
+            if r.status_code != 200:
+                last = f"HTTP {r.status_code} from {url}"
+                continue
+            j = r.json()
+            if isinstance(j, dict) and "d" in j:
+                j = json.loads(j["d"]) if isinstance(j["d"], str) else j["d"]
+            if isinstance(j, list):
+                return _parse_tri(j)
+            last = f"unexpected response from {url}: {str(j)[:120]}"
+        except ValueError:
+            last = f"{url} did not return data (probably a 'checking your browser' page - site is blocking automated access)"
+        except Exception as e:
+            last = f"{type(e).__name__}: {str(e)[:150]}"
+    raise RuntimeError(last)
+
+
+def _download_index(index, last):
+    """Runs in a worker thread: fetch one index from its last stored date (or the start) up to today."""
+    sess, today = _nifty_session(), date.today()
+    base = pd.Timestamp(_IDX.get(index, (None, None, BENCHMARK_HISTORY_FROM))[2])
+    first = max(base, pd.Timestamp(BENCHMARK_HISTORY_FROM)).date()
+    cur = (pd.Timestamp(last) - pd.Timedelta(days=10)).date() if last else first
+    rows, err = [], None
+    while cur <= today:                                      # one year per request
+        chunk_end = min((pd.Timestamp(cur) + pd.Timedelta(days=364)).date(), today)
+        try:
+            rows += fetch_tri(sess, index, cur, chunk_end)
+        except Exception as e:
+            err = str(e)
+            break
+        cur = (pd.Timestamp(chunk_end) + pd.Timedelta(days=1)).date()
+        time.sleep(0.4)
+    return index, rows, err
+
+
+def step_benchmarks(con):
+    """Keep bench_history up to date for all NSE equity TRIs. Never stops the run: on failure old data is kept,
+    and an interrupted first download continues from where it stopped next time."""
+    names = all_benchmarks()
+    last = dict(con.execute("SELECT index_name, MAX(bdate) FROM bench_history GROUP BY index_name").fetchall())
+    todo = len([n for n in names if n not in last])
+    log.info("Updating %d NSE indices%s ...", len(names),
+             f" (first download of {todo} indices takes a while; it resumes if interrupted)" if todo > 20 else "")
+    ok, failed = [], []
+    with ThreadPoolExecutor(max_workers=BENCHMARK_WORKERS) as ex:
+        futs = [ex.submit(_download_index, n, last.get(n)) for n in names]
+        for i, fut in enumerate(as_completed(futs), 1):
+            index, rows, err = fut.result()
+            if rows:
+                con.executemany("INSERT INTO bench_history VALUES (?,?,?) ON CONFLICT(index_name, bdate) DO UPDATE SET value=excluded.value",
+                                [(index, d, v) for d, v in rows])
+                con.commit()
+            (failed if err else ok).append(index)
+            if err and len(failed) <= 3:
+                log.warning("  index %s: download problem (%s)", index, err)
+            if i % 25 == 0 or i == len(names):
+                log.info("  indices: %d / %d done (%d with problems)", i, len(names), len(failed))
+    for index in sorted(set(BENCHMARKS.values()) | {EQUITY_DEFAULT_BENCHMARK}):
+        lt = con.execute("SELECT MAX(bdate), COUNT(*) FROM bench_history WHERE index_name=?", (index,)).fetchone()
+        log.info("Benchmark %s TRI: %d values, latest %s", index, lt[1], lt[0])
+    if failed:
+        log.warning("%d indices could not be updated this time (stored data kept; retried next run).", len(failed))
+    log_run(con, "benchmarks", "ok" if not failed else "partial", None, f"ok={len(ok)} failed={len(failed)}")
+
+
+def bench_test():
+    """python mf_update.py --bench-test : quick check that niftyindices.com answers from this computer."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    sess = _nifty_session()
+    end = date.today()
+    for index in sorted(set(BENCHMARKS.values()) | {EQUITY_DEFAULT_BENCHMARK}) + ["NIFTY BANK", "NIFTY IT", "NIFTY SMALLCAP 100"]:
+        try:
+            rows = sorted(fetch_tri(sess, index, end - pd.Timedelta(days=30), end))
+            print(f"OK    {index:20s} {len(rows)} values, newest {rows[-1] if rows else '-'}")
+        except Exception as e:
+            print(f"FAIL  {index:20s} {e}")
+
+
 # ======================= 4. RETURN CALCULATIONS =======================
 # The dashboard recalculates everything in the browser for any as-on date; these Python
 # versions produce Fund_Returns.csv and are the reference the browser maths is tested against.
@@ -492,7 +830,7 @@ def step_build(con):
             "dates": [d.date().isoformat() for d in panel.index],
             "series": {str(int(c)): [_n(v, 4) for v in panel[c].to_numpy()] for c in active},
             "cat_avg": [_n(v, 4) for v in category_average(panel)]})
-        cat = cats.setdefault(cat_id, {"id": cat_id, "name": cat_name, "ac": ac, "n": {}, "files": {}})
+        cat = cats.setdefault(cat_id, {"id": cat_id, "name": cat_name, "ac": ac, "n": {}, "files": {}, "bench": benchmark_for(ac, cat_name)})
         cat["n"][pc] = len(active)
         cat["files"][pc] = f"nav/{fname}"
 
@@ -500,15 +838,43 @@ def step_build(con):
     con.executemany("UPDATE schemes SET status='inactive' WHERE scheme_code=?", [(c,) for c in inactive])
     con.commit()
     cat_list = sorted(cats.values(), key=lambda c: (c["ac"], c["name"]))
+    # benchmark series files
+    bdir = DATA / "bench"
+    bdir.mkdir(exist_ok=True)
+    benches, idx_csv = [], []
+    for index in all_benchmarks():
+        b = pd.read_sql_query("SELECT bdate, value FROM bench_history WHERE index_name=? AND bdate<=? ORDER BY bdate",
+                              con, params=(index, as_of_s))
+        if b.empty:
+            continue
+        bid = re.sub(r"[^a-z0-9]+", "_", index.lower()).strip("_")
+        _write_json(bdir / f"{bid}.json", {"id": index, "label": bench_label(index), "dates": b["bdate"].tolist(),
+                                            "values": [round(float(v), 4) for v in b["value"]]})
+        benches.append({"id": index, "label": bench_label(index), "file": f"bench/{bid}.json",
+                        "group": _IDX.get(index, (None, "Broad market"))[1],
+                        "first": b["bdate"].iloc[0], "last": b["bdate"].iloc[-1]})
+        s = pd.Series(b["value"].to_numpy(), index=pd.to_datetime(b["bdate"]))
+        tr = {p: trailing_return(s, as_of, p) for p in TRAILING_PERIODS}
+        idx_csv.append({"Index": bench_label(index), "Group": _IDX.get(index, (None, "Broad market"))[1],
+                    "First value": s.index[0].date(), "Value date": s.index[-1].date(), "Value": round(s.iloc[-1], 2), **{f"{p} %": (None if v is None else round(v * 100, 2)) for p, v in tr.items()},
+                    **{f"CY{y} %": round(v * 100, 2) for y, v in sorted(calendar_returns(s, as_of).items(), reverse=True)[:10]}})
+    have = {b["id"] for b in benches}
+    for c in cat_list:
+        if c.get("bench") not in have:
+            c["bench"] = None
+    if not benches:
+        log.warning("No benchmark data available yet - the dashboard will compare with category averages only.")
     _write_json(DATA / "summary.json", {
         "version": 2, "as_of": as_of_s, "generated_at": datetime.now().isoformat(timespec="seconds"),
         "periods": TRAILING_PERIODS, "days_in_year": DAYS_IN_YEAR,
         "asset_classes": sorted({c["ac"] for c in cat_list}),
-        "categories": cat_list, "funds": funds, "inactive_count": len(inactive)})
+        "categories": cat_list, "funds": funds, "inactive_count": len(inactive), "benchmarks": benches})
     try:
         pd.DataFrame(csv).to_csv(DATA / "Fund_Returns.csv", index=False)
+        if idx_csv:
+            pd.DataFrame(idx_csv).to_csv(DATA / "Index_Returns.csv", index=False)
     except PermissionError:
-        log.warning("Fund_Returns.csv is open in Excel - close it to let it update next time.")
+        log.warning("Fund_Returns.csv / Index_Returns.csv is open in Excel - close it to let it update next time.")
     msg = f"{len(funds)} funds in {len(cat_list)} categories ({len(inactive)} closed/merged skipped)"
     log_run(con, "build", "ok", as_of_s, msg)
     log.info("Returns ready: %s in %.0fs", msg, time.time() - t0)
@@ -545,11 +911,21 @@ def make_demo_navall(seed=7):
                 hist += [(cd, d.date().isoformat(), float(v)) for d, v in zip(days[st:], nav)]
             lines.append("")
             code += 1
-    return "\n".join(lines), hist
+    bench = {}
+    for name, beta, alpha in (("NIFTY 100", 0.95, -0.005), ("NIFTY MIDCAP 150", 1.15, 0.02), ("NIFTY SMALLCAP 250", 1.25, 0.01), ("NIFTY 500", 1.0, 0.0),
+                              ("NIFTY 50", 0.93, -0.01), ("NIFTY BANK", 1.1, 0.0), ("NIFTY IT", 0.8, 0.02), ("NIFTY PHARMA", 0.6, 0.01),
+                              ("NIFTY FMCG", 0.5, 0.0), ("NIFTY INDIA CONSUMPTION", 0.8, 0.01), ("NIFTY PSE", 1.2, 0.0),
+                              ("NIFTY ALPHA 50", 1.2, 0.04), ("NIFTY LOW VOLATILITY 50", 0.7, 0.01)):
+        br = beta * mkt + alpha / 252 + rng.normal(0, 0.002, len(days))
+        bench[name] = [(d.date().isoformat(), float(v)) for d, v in zip(days, 10000 * np.cumprod(1 + br))]
+    return "\n".join(lines), hist, bench
 
 
 # ======================= RUN =======================
 def main():
+    if "--bench-test" in sys.argv:
+        bench_test()
+        return
     DATA.mkdir(exist_ok=True)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S",
                         handlers=[logging.StreamHandler(sys.stdout),
@@ -559,15 +935,18 @@ def main():
     try:
         if demo:
             log.info("DEMO MODE: synthetic funds, no internet needed")
-            text, hist = make_demo_navall()
+            text, hist, bench = make_demo_navall()
             step_daily(con, text)
             save_navs(con, hist)
+            for name, rows in bench.items():
+                con.executemany("INSERT OR REPLACE INTO bench_history VALUES (?,?,?)", [(name, d, v) for d, v in rows])
             con.executemany("INSERT OR REPLACE INTO history_done VALUES (?, 'done', 0, '')",
                             [(c,) for c in {h[0] for h in hist}])
             con.commit()
         else:
             gapped = step_daily(con, get_navall_text())
             step_history(con, gapped)
+            step_benchmarks(con)
             missing = con.execute("""SELECT COUNT(*) FROM schemes s JOIN history_done h USING (scheme_code)
                                      WHERE s.in_universe=1 AND h.status='failed'""").fetchone()[0]
             if missing:

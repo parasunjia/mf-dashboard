@@ -33,6 +33,7 @@ header h1 { font-size:17px; margin:0; font-weight:650; }
 .badge .dot { width:8px; height:8px; border-radius:50%; }
 nav.tabs { display:flex; gap:4px; margin-left:auto; flex-wrap:wrap; }
 nav.tabs button, .btn { font:inherit; border:1px solid var(--border); background:var(--surface); color:var(--ink); padding:6px 14px; border-radius:8px; cursor:pointer; }
+nav.tabs button { padding:6px 11px; font-size:13.5px; }
 nav.tabs button.on, .btn.on { background:var(--ink); color:var(--surface); border-color:var(--ink); }
 .btn:hover, nav.tabs button:not(.on):hover { background:var(--hover); }
 .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
@@ -80,6 +81,8 @@ td.name { max-width:250px; overflow:hidden; text-overflow:ellipsis; position:sti
 th.name { position:sticky; left:0; z-index:4; }
 tr.ghead td { background:var(--grp); font-weight:650; color:var(--ink); text-align:left; position:sticky; left:0; }
 tr.agg td { background:var(--page); font-weight:600; }
+tr.agg.bench td { font-style:italic; }
+tr.agg.bench td.name { box-shadow:inset 4px 0 0 var(--s2); }
 tr.agg td.name { background:var(--page); }
 tbody tr.fund:hover td { background:var(--hover); }
 .rk { color:var(--ink-2); font-size:10.5px; margin-left:1px; }
@@ -125,6 +128,7 @@ a.fl { color:var(--ink); text-decoration:none; } a.fl:hover { text-decoration:un
     <button data-tab="amc">AMC view</button>
     <button data-tab="cmp">Compare funds</button>
     <button data-tab="league">Category league</button>
+    <button data-tab="idx">Indices</button>
     <button data-tab="fund">Fund details</button>
   </nav>
   <button class="btn small" id="themeBtn" title="Switch light / dark">◐ Theme</button>
@@ -141,6 +145,7 @@ a.fl { color:var(--ink); text-decoration:none; } a.fl:hover { text-decoration:un
   <span class="sep"></span>
   <label>Risk period <select id="fRiskP"><option value="1Y">1 year</option><option value="3Y" selected>3 years</option><option value="5Y">5 years</option></select></label>
   <label>Risk based on <select id="fRiskF"><option value="M" selected>Monthly returns</option><option value="D">Daily returns</option></select></label>
+  <label>Benchmark <select id="fBmk" title="Category default: Large Cap → Nifty 100 TRI, Mid Cap → Nifty Midcap 150 TRI, Small Cap → Nifty Smallcap 250 TRI, other Equity → Nifty 500 TRI. Pick an index to compare every category with it instead."></select></label>
   <label>Beta vs <select id="fBench"></select></label>
 </div>
 
@@ -185,18 +190,38 @@ a.fl { color:var(--ink); text-decoration:none; } a.fl:hover { text-decoration:un
   <!-- ================= COMPARE ================= -->
   <section class="view" id="v-cmp">
     <div class="controls">
-      <label>Add fund (up to 8, any category)
+      <label>Add fund or NSE index (up to 8)
         <div class="picker" id="cmpPicker"><input type="text" placeholder="search fund or AMC name"><div class="list"></div></div>
       </label>
       <label>From <input type="date" id="cmpFrom"></label>
       <label>To <input type="date" id="cmpTo"></label>
       <div class="seg" id="cmpQuick" style="align-self:end"></div>
       <label style="flex-direction:row;align-items:center;gap:6px;align-self:end;font-size:13px;color:var(--ink)"><input type="checkbox" id="cmpCatAvg"> category averages</label>
+      <label style="flex-direction:row;align-items:center;gap:6px;align-self:end;font-size:13px;color:var(--ink)"><input type="checkbox" id="cmpBench" checked> benchmarks</label>
       <span style="flex:1"></span>
       <button class="btn small" id="cmpClear" style="align-self:end">Clear all</button>
     </div>
     <div class="chips" id="cmpChips"></div>
     <div id="cmpBody"></div>
+  </section>
+
+  <!-- ================= INDICES ================= -->
+  <section class="view" id="v-idx">
+    <div class="controls">
+      <label>Index group <div class="ms" id="iGrp"></div></label>
+      <span class="note" style="align-self:center;max-width:560px">All NSE equity Total Return Indices. Columns (return periods, calendar years, risk) follow the Category overview settings. (n) = rank within the group.</span>
+      <span style="flex:1"></span>
+      <button class="btn" id="idxCsv">Download CSV</button>
+      <button class="btn primary" id="idxToCompare" disabled>Compare selected (0)</button>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+        <div style="flex:1;min-width:300px"><h2 id="idxTitle">Indices</h2><p class="sub" style="margin:0" id="idxSub"></p></div>
+        <div class="searchbox"><input type="search" id="iSearch" placeholder="Search index…" aria-label="Search index"></div>
+      </div>
+      <div class="tablewrap" id="idxTable"></div>
+    </div>
+    <div id="idxPeriodic"></div>
   </section>
 
   <!-- ================= CATEGORY LEAGUE ================= -->
@@ -327,7 +352,7 @@ function rankMap(values) {                           // Map code->v  =>  Map cod
 
 /* ============================== data ============================== */
 const S = { sum: null, byCode: new Map(), cats: new Map(), files: new Map(), ser: new Map(), calc: new Map(),
-            cmp: store.get("cmp", []), fund: store.get("fund", null), sort: store.get("sort", { key: "tr:1Y", dir: -1 }), psort: store.get("psort", { key: "", dir: -1 }), picked: new Set() };
+            cmp: store.get("cmp", []), fund: store.get("fund", null), sort: store.get("sort", { key: "tr:1Y", dir: -1 }), isort: store.get("isort", { key: "tr:1Y", dir: -1 }), ipsort: store.get("ipsort", { key: "", dir: -1 }), psort: store.get("psort", { key: "", dir: -1 }), picked: new Set() };
 async function loadJSON(path) { const r = await fetch(path, { cache: "no-cache" }); if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`); return r.json(); }
 let loadingCount = 0;
 function busy(on, text) { loadingCount += on ? 1 : -1; const el = $("#loading"); el.textContent = text || "Loading…"; el.style.display = loadingCount > 0 ? "block" : "none"; }
@@ -360,19 +385,73 @@ function settings() {
   if (end > S.sum.as_of) end = S.sum.as_of;
   let note = "";
   if (me) { let e = endOfMonth(end); if (e > S.sum.as_of) { e = monthEndBack(end, 1); note = " (current month not finished, so previous month-end used)"; } end = e; }
-  return { end, me, note, plan: $("#fPlan").value, riskP: $("#fRiskP").value, riskF: $("#fRiskF").value, bench: $("#fBench").value };
+  return { end, me, note, plan: $("#fPlan").value, riskP: $("#fRiskP").value, riskF: $("#fRiskF").value, bench: $("#fBench").value, bmPick: $("#fBmk").value || "default" };
 }
-const setKey = s => [s.end, s.me, s.riskP, s.riskF, s.bench].join("|");
-async function benchFor(file, s) {
+const setKey = s => [s.end, s.me, s.riskP, s.riskF, s.bench, s.bmPick].join("|");
+/* ---- benchmark indices (NSE TRI), mapped per category in summary.json ---- */
+const BENCH = new Map();
+function benchMeta(id) { return (S.sum.benchmarks || []).find(b => b.id === id) || null; }
+function loadBench(id) {
+  if (!id || !benchMeta(id)) return Promise.resolve(null);
+  if (!BENCH.has(id)) { const m = benchMeta(id); BENCH.set(id, loadJSON("data/" + m.file).then(j => ({ d: j.dates, v: j.values, label: m.label, id })).catch(() => null)); }
+  return BENCH.get(id);
+}
+const catBench = cat => loadBench(S.cats.get(cat)?.bench);
+async function benchFor(file, s, tri) {             // series used as the reference for Beta
+  if (s.bench === "tri") return tri || file.avg;     // category benchmark; category average where none is mapped
   if (s.bench === "cat") return file.avg;
   return await fundSeries(+s.bench);
+}
+function beatCounts(rows, bm, keys, get) {           // how many funds beat the benchmark, per column
+  const out = {};
+  keys.forEach(k => { const bv = get(bm, k); if (bv == null || !isFinite(bv)) return; let b = 0, n = 0;
+    rows.forEach(m => { const v = get(m, k); if (v != null && isFinite(v)) { n++; if (v > bv) b++; } }); out[k] = { b, n }; });
+  return out;
+}
+/* ---- NSE indices as table rows: code "IDX:<index name>" ---- */
+const IDX_GROUPS = ["Broad market", "Sector", "Thematic", "Strategy"];
+const isIdx = c => typeof c === "string" && c.startsWith("IDX:");
+function idxMeta(c) { const m = benchMeta(c.slice(4)); return m ? { c, n: m.label, fn: `${m.label} · NSE ${m.group || "index"}`, amc: "NSE Indices", isIdx: true, group: m.group || "Broad market" } : null; }
+const entity = c => isIdx(c) ? idxMeta(c) : S.byCode.get(c);
+async function idxSeries(c) { const b = await loadBench(c.slice(4)); if (b) S.ser.set(c, b); return b; }
+function statsAndRanks(rows, metricKeys, get) {
+  const stats = {}, ranks = {};
+  for (const k of metricKeys) {
+    const vals = new Map(); rows.forEach((m, c) => vals.set(c, get(m, k)));
+    const arr = [...vals.values()].filter(v => v != null && isFinite(v));
+    stats[k] = { avg: mean(arr), med: median(arr), max: arr.length ? Math.max(...arr) : null, n: arr.length };
+    if (k.startsWith("tr:") || k.startsWith("cy:")) ranks[k] = rankMap(vals);
+  }
+  return { stats, ranks };
+}
+async function calcIndexGroup(group, s) {
+  const key = "IDX|" + group + "|" + setKey(s);
+  if (S.calc.has(key)) return S.calc.get(key);
+  const metas = (S.sum.benchmarks || []).filter(b => (b.group || "Broad market") === group);
+  const fresh = metas.filter(m => !BENCH.has(m.id)).length;
+  if (fresh > 3) busy(true, `Loading ${fresh} indices…`);
+  let sers; try { sers = await Promise.all(metas.map(m => idxSeries("IDX:" + m.id))); } finally { if (fresh > 3) busy(false); }
+  const refId = s.bmPick && s.bmPick !== "default" ? s.bmPick : "NIFTY 500", ref = await loadBench(refId);
+  const riskStart = periodStart(s.riskP, s.end, s.me), rows = new Map();
+  metas.forEach((m, i) => {
+    const f = sers[i]; if (!f) return; const i1 = idx(f.d, s.end); if (i1 < 0 || daysBetween(f.d[i1], s.end) > 10) return;
+    const tr = {}; ALL_P.forEach(p => tr[p] = p === "SI" ? null : trailing(f, p, s.end, s.me));
+    rows.set("IDX:" + m.id, { code: "IDX:" + m.id, nav: f.v[i1], navDate: f.d[i1], inc: f.d[0], tr, cy: calendarYears(f, s.end), risk: riskMetrics(f, ref, riskStart, s.end, s.riskF, s.me) || {} });
+  });
+  const metricKeys = [...ALL_P.map(p => "tr:" + p)]; const Y = +s.end.slice(0, 4); for (let y = Y - 1; y >= Y - 10; y--) metricKeys.push("cy:" + y); metricKeys.push("sd", "beta", "mdd");
+  const get = (m, k) => k.startsWith("tr:") ? m.tr[k.slice(3)] : k.startsWith("cy:") ? m.cy[k.slice(3)] : m.risk[k];
+  const { stats, ranks } = statsAndRanks(rows, metricKeys, get);
+  const out = { cat: "idx:" + group, plan: "", name: group, ac: "NSE indices", kind: "idx", rows, stats, ranks, get, tri: null, bm: null, beat: {}, refLabel: ref?.label || "–" };
+  S.calc.set(key, out); return out;
 }
 /* compute every metric for every fund in one category+plan, plus category stats and ranks */
 async function calcCategory(cat, plan, s) {
   const key = cat + "|" + plan + "|" + setKey(s);
   if (S.calc.has(key)) return S.calc.get(key);
   const file = await catFile(cat, plan); if (!file) return null;
-  const bench = await benchFor(file, s);
+  let tri = s.bmPick && s.bmPick !== "default" ? await loadBench(s.bmPick) : await catBench(cat);
+  if (tri) { const ib = idx(tri.d, s.end); if (ib < 0 || daysBetween(tri.d[ib], s.end) > 10) tri = null; }   // no benchmark value near the as-on date
+  const bench = await benchFor(file, s, tri);
   const riskStart = periodStart(s.riskP, s.end, s.me);
   const rows = new Map();
   for (const [code, f] of file.ser) {
@@ -392,7 +471,13 @@ async function calcCategory(cat, plan, s) {
     stats[k] = { avg: mean(arr), med: median(arr), max: arr.length ? Math.max(...arr) : null, n: arr.length };
     if (k.startsWith("tr:") || k.startsWith("cy:")) ranks[k] = rankMap(vals);
   }
-  const out = { cat, plan, name: file.name, ac: file.ac, rows, stats, ranks, get, riskStart, file };
+  let bm = null, beat = {};
+  if (tri) {
+    const tr = {}; ALL_P.forEach(p => tr[p] = p === "SI" ? null : trailing(tri, p, s.end, s.me));
+    bm = { label: tri.label, tr, cy: calendarYears(tri, s.end), risk: riskMetrics(tri, bench, riskStart, s.end, s.riskF, s.me) || {} };
+    beat = beatCounts(rows, bm, metricKeys.filter(k => k.startsWith("tr:") || k.startsWith("cy:")), get);
+  }
+  const out = { cat, plan, name: file.name, ac: file.ac, rows, stats, ranks, get, riskStart, file, tri, bm, beat };
   S.calc.set(key, out);
   return out;
 }
@@ -464,17 +549,21 @@ function rebased(f, start, end) {
 }
 
 /* ============================== picker ============================== */
-function makePicker(root, onPick) {
+function makePicker(root, onPick, opt = {}) {
   const input = root.querySelector("input"), list = root.querySelector(".list");
   let results = [], act = 0;
   const show = () => {
     const q = input.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
     if (!q.length) { list.style.display = "none"; return; }
     const plan = $("#fPlan").value;
-    results = S.sum.funds.filter(f => f.pl === plan && q.every(w => (f.n + " " + f.amc + " " + S.cats.get(f.cat).name).toLowerCase().includes(w))).slice(0, 40);
+    const fr = S.sum.funds.filter(f => f.pl === plan && q.every(w => (f.n + " " + f.amc + " " + S.cats.get(f.cat).name).toLowerCase().includes(w)))
+      .map(f => ({ c: f.c, n: f.n, sub: `${S.cats.get(f.cat).name} · ${f.pl === "D" ? "Direct" : "Regular"} · ${f.amc || ""}` }));
+    const ir = opt.indices ? (S.sum.benchmarks || []).filter(b => q.every(w => (b.label + " " + (b.group || "") + " nse index").toLowerCase().includes(w))).slice(0, 12)
+      .map(b => ({ c: "IDX:" + b.id, n: b.label, sub: `NSE index · ${b.group || "Broad market"}` })) : [];
+    results = [...ir, ...fr].slice(0, 40);
     act = 0;
-    list.innerHTML = results.length ? results.map((f, i) => `<div data-i="${i}" class="${i === 0 ? "act" : ""}">${esc(f.n)}<small>${esc(S.cats.get(f.cat).name)} · ${f.pl === "D" ? "Direct" : "Regular"} · ${esc(f.amc || "")}</small></div>`).join("")
-                                    : `<div style="cursor:default;color:var(--muted)">No matching fund in ${plan === "D" ? "Direct" : "Regular"} plan</div>`;
+    list.innerHTML = results.length ? results.map((r, i) => `<div data-i="${i}" class="${i === 0 ? "act" : ""}">${esc(r.n)}<small>${esc(r.sub)}</small></div>`).join("")
+                                    : `<div style="cursor:default;color:var(--muted)">No match in ${plan === "D" ? "Direct" : "Regular"} plan${opt.indices ? " or NSE indices" : ""}</div>`;
     list.style.display = "block";
   };
   input.addEventListener("input", show); input.addEventListener("focus", show);
@@ -514,19 +603,21 @@ function tableHTML(groups, s, { checkbox = true, showAmc = false, cols: customCo
   cols.forEach(c => { if (c.grp !== lastG) { if (lastG) spans.push([lastG, span]); lastG = c.grp; span = 0; } span++; }); if (lastG) spans.push([lastG, span]);
   spans.forEach(([g, n]) => h += `<th colspan="${n}" class="gl" style="text-align:left">${grpLabel[g]}</th>`);
   const arrow = k => SORT.key === k ? (SORT.dir > 0 ? " ▲" : " ▼") : "";
-  h += `</tr><tr><th class="l name s" data-k="name">Fund${arrow("name")}</th>${checkbox ? `<th class="l"></th>` : ""}${showAmc ? `<th class="l s" data-k="amc">AMC${arrow("amc")}</th>` : ""}<th class="s" data-k="inc">Since${arrow("inc")}</th><th class="s" data-k="nav">NAV${arrow("nav")}</th>`;
+  h += `</tr><tr><th class="l name s" data-k="name">${groups[0]?.calc.kind === "idx" ? "Index" : "Fund"}${arrow("name")}</th>${checkbox ? `<th class="l"></th>` : ""}${showAmc ? `<th class="l s" data-k="amc">AMC${arrow("amc")}</th>` : ""}<th class="s" data-k="inc">Since${arrow("inc")}</th><th class="s" data-k="nav">NAV${arrow("nav")}</th>`;
   cols.forEach(c => h += `<th class="s ${c.first ? "gl" : ""}" data-k="${c.key}" title="${c.key === "sd" ? "Annualised standard deviation" : c.key === "beta" ? "Beta vs " + ($("#fBench").selectedOptions[0]?.text || "") : c.key === "mdd" ? "Maximum drawdown: worst peak-to-trough fall" : ""}">${c.label}${arrow(c.key)}</th>`);
   h += `</tr></thead><tbody>`;
   const nc = cols.length + 3 + (checkbox ? 1 : 0) + (showAmc ? 1 : 0);
   const k = SORT.key, dir = SORT.dir;
   for (const g of groups) {
     const calc = g.calc;
-    h += `<tr class="ghead"><td colspan="${nc}">${esc(calc.ac)} · ${esc(calc.name)} <span style="font-weight:400;color:var(--ink-2)">— ${g.codes.length} of ${calc.rows.size} fund${calc.rows.size === 1 ? "" : "s"} shown · ${s.plan === "D" ? "Direct" : "Regular"} plan</span></td></tr>`;
-    const val = c => { const m = calc.rows.get(c), f = S.byCode.get(c); return k === "name" ? f.n : k === "amc" ? f.amc : k === "inc" ? m.inc : k === "nav" ? m.nav : calc.get(m, k); };
+    h += calc.kind === "idx"
+      ? `<tr class="ghead"><td colspan="${nc}">${esc(calc.name)} <span style="font-weight:400;color:var(--ink-2)">— ${g.codes.length} of ${calc.rows.size} indices shown · beta vs ${esc(calc.refLabel)}</span></td></tr>`
+      : `<tr class="ghead"><td colspan="${nc}">${esc(calc.ac)} · ${esc(calc.name)} <span style="font-weight:400;color:var(--ink-2)">— ${g.codes.length} of ${calc.rows.size} fund${calc.rows.size === 1 ? "" : "s"} shown · ${s.plan === "D" ? "Direct" : "Regular"} plan${calc.bm ? ` · benchmark ${esc(calc.bm.label)}` : ""}</span></td></tr>`;
+    const val = c => { const m = calc.rows.get(c), f = entity(c); return k === "name" ? f.n : k === "amc" ? f.amc : k === "inc" ? m.inc : k === "nav" ? m.nav : calc.get(m, k); };
     const codes = g.codes.slice().sort((a, b) => { const va = val(a), vb = val(b); if (va == null && vb == null) return 0; if (va == null) return 1; if (vb == null) return -1; return (typeof va === "string" ? va.localeCompare(vb) : va - vb) * dir; });
     for (const c of codes) {
-      const m = calc.rows.get(c), f = S.byCode.get(c);
-      h += `<tr class="fund"><td class="l name"><a href="#" class="fl" data-fund="${c}" title="${esc(f.fn)}">${esc(f.n)}</a></td>${checkbox ? `<td class="l"><input type="checkbox" data-c="${c}" ${S.picked.has(c) ? "checked" : ""}></td>` : ""}${showAmc ? `<td class="l">${esc(f.amc)}</td>` : ""}<td>${fmtD(m.inc)}</td><td>${m.nav.toFixed(2)}</td>`;
+      const m = calc.rows.get(c), f = entity(c);
+      h += `<tr class="fund"><td class="l name">${f.isIdx ? `<span title="${esc(f.fn)}">${esc(f.n)}</span>` : `<a href="#" class="fl" data-fund="${c}" title="${esc(f.fn)}">${esc(f.n)}</a>`}</td>${checkbox ? `<td class="l"><input type="checkbox" data-c="${c}" ${S.picked.has(c) ? "checked" : ""}></td>` : ""}${showAmc ? `<td class="l">${esc(f.amc)}</td>` : ""}<td>${fmtD(m.inc)}</td><td>${m.nav.toFixed(2)}</td>`;
       cols.forEach(col => {
         const v = calc.get(m, col.key), rk = calc.ranks[col.key]?.get(c);
         h += col.kind === "ret" ? `<td class="${col.first ? "gl " : ""}${rk ? "q" + rk.q : ""}" title="${rk ? `Rank ${rk.r} of ${rk.n} in category · Q${rk.q}` : "Not enough history"}">${fmtP(v)}${rk ? `<span class="rk">(${rk.r})</span>` : ""}</td>`
@@ -534,9 +625,17 @@ function tableHTML(groups, s, { checkbox = true, showAmc = false, cols: customCo
       });
       h += `</tr>`;
     }
-    for (const [lab, key] of [["Category average", "avg"], ["Category median", "med"]]) {
+    for (const [lab, key] of calc.kind === "idx" ? [["Group average", "avg"], ["Group median", "med"]] : [["Category average", "avg"], ["Category median", "med"]]) {
       h += `<tr class="agg"><td class="l name">${lab}</td>${checkbox ? "<td></td>" : ""}${showAmc ? "<td></td>" : ""}<td></td><td></td>`;
       cols.forEach(col => h += `<td class="${col.first ? "gl" : ""}">${cellVal(col, calc.stats[col.key]?.[key])}</td>`);
+      h += `</tr>`;
+    }
+    if (calc.bm) {
+      const pad = `${checkbox ? "<td></td>" : ""}${showAmc ? "<td></td>" : ""}<td></td><td></td>`;
+      h += `<tr class="agg bench"><td class="l name" title="Benchmark (NSE Total Return Index)">${esc(calc.bm.label)}</td>${pad}`;
+      cols.forEach(col => h += `<td class="${col.first ? "gl" : ""}">${cellVal(col, calc.get(calc.bm, col.key))}</td>`);
+      h += `</tr><tr class="agg"><td class="l name" title="Funds whose return is higher than the benchmark's">Funds beating benchmark</td>${pad}`;
+      cols.forEach(col => { const b = calc.beat?.[col.key]; h += `<td class="${col.first ? "gl" : ""}">${col.kind === "ret" && b && b.n ? `${b.b}/${b.n}<span class="rk">(${Math.round(b.b / b.n * 100)}%)</span>` : ""}</td>`; });
       h += `</tr>`;
     }
   }
@@ -548,7 +647,7 @@ function wireTable(el, rerender, sortName = "sort") {
     if (th) { const k = th.dataset.k, cur = S[sortName]; S[sortName] = { key: k, dir: cur.key === k ? -cur.dir : (["name", "amc"].includes(k) ? 1 : -1) }; store.set(sortName, S[sortName]); rerender(); return; }
     const a = e.target.closest("a[data-fund]"); if (a) { e.preventDefault(); openFund(+a.dataset.fund); }
   };
-  el.onchange = e => { const c = +e.target.dataset.c; if (!c) return; e.target.checked ? S.picked.add(c) : S.picked.delete(c); updatePickBtn(); };
+  el.onchange = e => { const raw = e.target.dataset.c; if (!raw) return; const c = /^\d+$/.test(raw) ? +raw : raw; e.target.checked ? S.picked.add(c) : S.picked.delete(c); updatePickBtn(); };
 }
 
 /* ============================== CATEGORY OVERVIEW ============================== */
@@ -592,7 +691,7 @@ async function renderCategory() {
     else $("#catChart").innerHTML = `<div class="empty">No fund has ${per} history.</div>`;
   } else card.innerHTML = "";
 }
-function updatePickBtn() { const b = $("#toCompare"); b.textContent = `Compare selected (${S.picked.size})`; b.disabled = !S.picked.size; }
+function updatePickBtn() { ["#toCompare", "#idxToCompare"].forEach(id => { const b = $(id); if (!b) return; b.textContent = `Compare selected (${S.picked.size})`; b.disabled = !S.picked.size; }); }
 function tableToCsv(el, name) {
   const rows = [...el.querySelectorAll("tr")].filter(tr => !tr.closest("thead") || tr === el.querySelector("thead tr:nth-child(2)"));
   const lines = rows.map(tr => [...tr.children].map(td => `"${td.textContent.replace(/\(\d+\)$/, m => " " + m).replace(/"/g, '""').trim()}"`).join(","));
@@ -626,21 +725,24 @@ async function renderAmc() {
 /* ============================== COMPARE ============================== */
 function addCompare(code) {
   if (S.cmp.some(x => x.c === code)) return true;
-  if (S.cmp.length >= 8) { alert("You can compare up to 8 funds at a time. Remove one first."); return false; }
+  if (S.cmp.length >= 8) { alert("You can compare up to 8 funds / indices at a time. Remove one first."); return false; }
   const used = new Set(S.cmp.map(x => x.s)); let s = 0; while (used.has(s)) s++;
   S.cmp.push({ c: code, s }); store.set("cmp", S.cmp); return true;
 }
 const planTag = f => f.pl === "R" ? " (Regular)" : "";
 let cmpRange = store.get("cmpRange", "MAX");
 async function renderCompare() {
-  S.cmp = S.cmp.filter(x => S.byCode.has(x.c));
+  S.cmp = S.cmp.filter(x => isIdx(x.c) ? !!idxMeta(x.c) : S.byCode.has(x.c));
   const col = SERIES();
-  $("#cmpChips").innerHTML = S.cmp.map(x => { const f = S.byCode.get(x.c); return `<span class="chip"><span class="sw" style="background:${col[x.s]}"></span><span title="${esc(f.fn)}">${esc(f.n + planTag(f))}</span><button data-rm="${x.c}" title="remove">×</button></span>`; }).join("");
+  $("#cmpChips").innerHTML = S.cmp.map(x => { const f = entity(x.c); return `<span class="chip"><span class="sw" style="background:${col[x.s]}"></span><span title="${esc(f.fn)}">${esc(f.n + planTag(f))}</span><button data-rm="${esc(x.c)}" title="remove">×</button></span>`; }).join("");
   const body = $("#cmpBody");
   if (!S.cmp.length) { body.innerHTML = `<div class="card empty">Add funds with the search box above, or tick funds in the Category overview and press <b>Compare selected</b>.</div>`; return; }
   body.innerHTML = `<div class="card empty">Loading…</div>`;
   const s = settings(), asOf = S.sum.as_of;
-  const items = await Promise.all(S.cmp.map(async x => { const f = S.byCode.get(x.c); return { ...x, f, ser: await fundSeries(x.c), calc: await calcCategory(f.cat, f.pl, s) }; }));
+  const items = await Promise.all(S.cmp.map(async x => {
+    if (isIdx(x.c)) { const f = idxMeta(x.c), ser = await idxSeries(x.c); return { ...x, f, ser, calc: null, idxTr: Object.fromEntries(ALL_P.map(p => [p, p === "SI" ? null : trailing(ser, p, s.end, s.me)])) }; }
+    const f = S.byCode.get(x.c); return { ...x, f, ser: await fundSeries(x.c), calc: await calcCategory(f.cat, f.pl, s) }; }));
+  const fundItems = items.filter(i => !i.f.isIdx);
   const commonStart = items.map(i => i.ser.d[0]).sort().pop();
   const youngest = items.find(i => i.ser.d[0] === commonStart);
   let to = $("#cmpTo").value || asOf; if (to > asOf) to = asOf;
@@ -654,9 +756,12 @@ async function renderCompare() {
   document.querySelectorAll("#cmpQuick button").forEach(b => b.classList.toggle("on", b.dataset.r === cmpRange));
   const days = daysBetween(from, to), isCagr = days > DIY;
   const showCat = $("#cmpCatAvg").checked;
-  const catKeys = [...new Set(items.map(i => i.f.cat + "|" + i.f.pl))];
+  const catKeys = [...new Set(fundItems.map(i => i.f.cat + "|" + i.f.pl))];
   const catSer = showCat ? await Promise.all(catKeys.map(async k => { const [c, p] = k.split("|"); const file = await catFile(c, p); return { name: `Avg: ${file.name}${p === "R" ? " (Reg)" : ""}`, ser: file.avg }; })) : [];
   const riskStart = from, bench = null;
+  const inCmp = new Set(items.filter(i => i.f.isIdx).map(i => i.c.slice(4)));
+  const bIds = s.bmPick !== "default" ? (fundItems.length ? [s.bmPick] : []) : fundItems.map(i => S.cats.get(i.f.cat).bench);
+  const benchSer = $("#cmpBench").checked ? (await Promise.all([...new Set(bIds.filter(id => id && !inCmp.has(id)))].map(loadBench))).filter(Boolean) : [];
 
   body.innerHTML = `
     ${adjusted ? `<p class="note" style="margin-top:-6px">Start date moved to <b>${fmtD(from)}</b> so every fund covers the same period (youngest fund: ${esc(youngest.f.n)}, first NAV ${fmtD(commonStart)}).</p>` : ""}
@@ -678,6 +783,7 @@ async function renderCompare() {
   const traces = items.map(i => { const [x, y] = rebased(i.ser, from, to); return { x, y, type: "scatter", mode: "lines", name: i.f.n + planTag(i.f), line: { color: col[i.s], width: 2 }, hovertemplate: "%{y:.1f}" }; });
   const dashes = ["dot", "dash", "dashdot", "longdash"];
   catSer.forEach((c, k) => { const [x, y] = rebased(c.ser, from, to); traces.push({ x, y, type: "scatter", mode: "lines", name: c.name, line: { color: css("--muted"), width: 1.5, dash: dashes[k % 4] }, hovertemplate: "%{y:.1f}" }); });
+  benchSer.forEach((b, k) => { if (b.d[0] > from) return; const [x, y] = rebased(b, from, to); traces.push({ x, y, type: "scatter", mode: "lines", name: b.label, line: { color: css("--ink-2"), width: 1.5, dash: ["dash", "dot", "dashdot", "longdash"][k % 4] }, hovertemplate: "%{y:.1f}" }); });
   plot("cmpGrowth", traces, { height: 420, yaxis: { title: { text: "Value of ₹100" } }, legend: { y: 1.15 } });
 
   const P = ["1M", "3M", "6M", "1Y", "3Y", "5Y", "10Y"];
@@ -686,11 +792,13 @@ async function renderCompare() {
   const bestPer = Math.max(...per.filter(x => x != null));
   let t = `<table><thead><tr><th class="l">Fund</th><th class="l">Category</th><th>First NAV</th><th class="gl">Selected period</th><th>Std dev</th><th>Max DD</th>${P.map((p, k) => `<th class="${k === 0 ? "gl" : ""}">${p}</th>`).join("")}</tr></thead><tbody>`;
   items.forEach((i, k) => {
-    const m = i.calc?.rows.get(i.c);
-    t += `<tr class="fund"><td class="l"><span class="sw" style="background:${col[i.s]}"></span> <a href="#" class="fl" data-fund="${i.c}" title="${esc(i.f.fn)}">${esc(i.f.n + planTag(i.f))}</a></td><td class="l">${esc(S.cats.get(i.f.cat).name)}</td><td>${fmtD(i.ser.d[0])}</td>
+    const m = i.calc?.rows.get(i.c) || (i.f.isIdx ? { tr: i.idxTr } : null);
+    t += `<tr class="fund"><td class="l"><span class="sw" style="background:${col[i.s]}"></span> ${i.f.isIdx ? `<span title="${esc(i.f.fn)}">${esc(i.f.n)}</span>` : `<a href="#" class="fl" data-fund="${i.c}" title="${esc(i.f.fn)}">${esc(i.f.n + planTag(i.f))}</a>`}</td><td class="l">${i.f.isIdx ? `NSE index · ${esc(i.f.group)}` : esc(S.cats.get(i.f.cat).name)}</td><td>${fmtD(i.ser.d[0])}</td>
       <td class="gl ${per[k] === bestPer ? "best" : ""}">${fmtP(per[k])}</td><td>${fmtP(risk[k].sd)}</td><td>${fmtP(risk[k].mdd)}</td>
       ${P.map((p, j) => { const rk = i.calc?.ranks["tr:" + p]?.get(i.c); return `<td class="${j === 0 ? "gl " : ""}${rk ? "q" + rk.q : ""}">${fmtP(m?.tr[p])}${rk ? `<span class="rk">(${rk.r})</span>` : ""}</td>`; }).join("")}</tr>`;
   });
+  benchSer.forEach(b => { const r = b.d[0] <= from ? riskMetrics(b, null, from, to, s.riskF, false) || {} : {};
+    t += `<tr class="agg bench"><td class="l name">${esc(b.label)}</td><td class="l">benchmark</td><td>${fmtD(b.d[0])}</td><td class="gl">${fmtP(pointReturn(b, from, to, false))}</td><td>${fmtP(r.sd)}</td><td>${fmtP(r.mdd)}</td>${P.map((p, j) => `<td class="${j === 0 ? "gl" : ""}">${fmtP(trailing(b, p, s.end, s.me))}</td>`).join("")}</tr>`; });
   $("#cmpTable").innerHTML = t + "</tbody></table>";
 
   const cal = items.map(i => calendarYears(i.ser, asOf));
@@ -763,11 +871,14 @@ async function calcPeriodic(base, s, freq, n, basis) {       // base = calcCateg
   const stats = {}, ranks = {};
   cols.forEach(c => { const vals = new Map(); rows.forEach((m, code) => vals.set(code, m.p[c.key])); const a = [...vals.values()].filter(v => v != null && isFinite(v));
     stats[c.key] = { avg: mean(a), med: median(a), n: a.length }; ranks[c.key] = rankMap(vals); });
-  const out = { cat: base.cat, plan: base.plan, name: base.name, ac: base.ac, rows, stats, ranks, cols, get: (m, k) => m.p[k] };
+  let bm = null, beat = {};
+  if (base.tri) { const p = {}; cols.forEach(c => p[c.key] = pointReturn(base.tri, c.start, c.end, true)); bm = { label: base.tri.label, p }; beat = beatCounts(rows, bm, cols.map(c => c.key), (m, k) => m.p[k]); }
+  const out = { cat: base.cat, plan: base.plan, name: base.name, ac: base.ac, kind: base.kind, refLabel: base.refLabel, rows, stats, ranks, cols, get: (m, k) => m.p[k], bm, beat };
   S.calc.set(key, out); return out;
 }
-async function renderPeriodic(groups, s, q) {
-  const box = $("#catPeriodic");
+async function renderPeriodic(groups, s, q, o = {}) {
+  const px = o.px || "per", sortName = o.sortName || "psort", box = $("#" + (o.box || "catPeriodic")), unit = o.unit || "category";
+  const searchTxt = (o.searchEl ? $(o.searchEl) : $("#cSearch")).value.trim();
   if (!groups.length) { box.innerHTML = ""; return; }
   const freq = store.get("perF", "M"), basis = store.get("perB", "CY");
   const defN = { M: 12, Q: 8, H: 6 }, n = +store.get("perN" + freq, defN[freq]);
@@ -776,25 +887,43 @@ async function renderPeriodic(groups, s, q) {
   const pc = pgroups[0].calc.cols;
   const cols = pc.map((c, i) => ({ key: c.key, label: c.label, grp: c.partial ? "td" : "p", first: i === 0 || (i === 1 && pc[0].partial), kind: "ret" }));
   const word = { M: "Monthly", Q: "Quarterly", H: "Half-yearly" }[freq];
-  if (!cols.some(c => c.key === S.psort.key)) S.psort = { key: cols[pc[0].partial ? 1 : 0].key, dir: -1 };
+  if (!cols.some(c => c.key === S[sortName].key)) S[sortName] = { key: cols[pc[0].partial ? 1 : 0].key, dir: -1 };
   const lab = { td: "To date", p: `${word} returns (absolute) · latest first` };
   box.innerHTML = `<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-      <div style="flex:1;min-width:300px"><h2>${word} returns</h2><p class="sub" style="margin:0">Each column: NAV on the period's last day ÷ NAV on the previous period's last day − 1 (holidays use the previous NAV) · ${s.plan === "D" ? "Direct" : "Regular"} plan · up to ${fmtD(s.end)}${q ? ` · search: “${esc($("#cSearch").value.trim())}”` : ""} · (n) = rank in category, shading = quartile</p></div>
+      <div style="flex:1;min-width:300px"><h2>${word} returns</h2><p class="sub" style="margin:0">Each column: value on the period's last day ÷ value on the previous period's last day − 1 (holidays use the previous value) · ${unit === "group" ? "NSE TRI" : (s.plan === "D" ? "Direct" : "Regular") + " plan"} · up to ${fmtD(s.end)}${q ? ` · search: “${esc(searchTxt)}”` : ""} · (n) = rank in ${unit}, shading = quartile</p></div>
       <div class="controls" style="margin:0">
-        <label>Frequency <select id="perF"><option value="M" ${freq === "M" ? "selected" : ""}>Monthly</option><option value="Q" ${freq === "Q" ? "selected" : ""}>Quarterly</option><option value="H" ${freq === "H" ? "selected" : ""}>Semi-annually</option></select></label>
-        <label>Periods <select id="perN">${[4, 6, 8, 12, 18, 24, 36].map(x => `<option ${x === n ? "selected" : ""}>${x}</option>`).join("")}</select></label>
-        ${freq === "H" ? `<label>Half-years <select id="perB"><option value="CY" ${basis === "CY" ? "selected" : ""}>Calendar (Jan–Jun, Jul–Dec)</option><option value="FY" ${basis === "FY" ? "selected" : ""}>Financial (Apr–Sep, Oct–Mar)</option></select></label>` : ""}
-        <button class="btn small" id="perCsv" style="align-self:end">Download CSV</button>
+        <label>Frequency <select id="${px}F"><option value="M" ${freq === "M" ? "selected" : ""}>Monthly</option><option value="Q" ${freq === "Q" ? "selected" : ""}>Quarterly</option><option value="H" ${freq === "H" ? "selected" : ""}>Semi-annually</option></select></label>
+        <label>Periods <select id="${px}N">${[4, 6, 8, 12, 18, 24, 36].map(x => `<option ${x === n ? "selected" : ""}>${x}</option>`).join("")}</select></label>
+        ${freq === "H" ? `<label>Half-years <select id="${px}B"><option value="CY" ${basis === "CY" ? "selected" : ""}>Calendar (Jan–Jun, Jul–Dec)</option><option value="FY" ${basis === "FY" ? "selected" : ""}>Financial (Apr–Sep, Oct–Mar)</option></select></label>` : ""}
+        <button class="btn small" id="${px}Csv" style="align-self:end">Download CSV</button>
       </div></div>
-    <div class="tablewrap" id="perTable"></div></div>`;
-  const el = $("#perTable");
-  el.innerHTML = tableHTML(pgroups, s, { checkbox: false, cols, grpLabel: lab, sort: S.psort });
-  wireTable(el, () => renderPeriodic(groups, s, q), "psort");
-  $("#perF").onchange = e => { store.set("perF", e.target.value); renderPeriodic(groups, s, q); };
-  $("#perN").onchange = e => { store.set("perN" + freq, e.target.value); renderPeriodic(groups, s, q); };
-  if ($("#perB")) $("#perB").onchange = e => { store.set("perB", e.target.value); renderPeriodic(groups, s, q); };
-  $("#perCsv").onclick = () => tableToCsv(el, `${word.toLowerCase()}_returns_${s.end}.csv`);
+    <div class="tablewrap" id="${px}Table"></div></div>`;
+  const el = $("#" + px + "Table");
+  el.innerHTML = tableHTML(pgroups, s, { checkbox: false, cols, grpLabel: lab, sort: S[sortName] });
+  wireTable(el, () => renderPeriodic(groups, s, q, o), sortName);
+  $("#" + px + "F").onchange = e => { store.set("perF", e.target.value); renderPeriodic(groups, s, q, o); };
+  $("#" + px + "N").onchange = e => { store.set("perN" + freq, e.target.value); renderPeriodic(groups, s, q, o); };
+  if ($("#" + px + "B")) $("#" + px + "B").onchange = e => { store.set("perB", e.target.value); renderPeriodic(groups, s, q, o); };
+  $("#" + px + "Csv").onclick = () => tableToCsv(el, `${word.toLowerCase()}_returns_${s.end}.csv`);
+}
+
+/* ============================== INDICES TAB ============================== */
+let iGrp;
+async function renderIndices() {
+  const tok = ++renderToken, s = settings(), el = $("#idxTable");
+  if (!(S.sum.benchmarks || []).length) { el.innerHTML = `<div class="empty">No index data yet. Run the update once (it downloads all NSE indices).</div>`; $("#idxPeriodic").innerHTML = ""; return; }
+  const q = $("#iSearch").value.trim().toLowerCase(), gs = [];
+  for (const g of IDX_GROUPS.filter(x => iGrp.value.includes(x))) {
+    const calc = await calcIndexGroup(g, s); if (tok !== renderToken) return;
+    const codes = [...calc.rows.keys()].filter(c => !q || entity(c).n.toLowerCase().includes(q)); if (codes.length) gs.push({ calc, codes });
+  }
+  const n = gs.reduce((a, g) => a + g.codes.length, 0);
+  $("#idxTitle").textContent = `${n} ind${n === 1 ? "ex" : "ices"}${q ? ` matching “${$("#iSearch").value.trim()}”` : ""}`;
+  $("#idxSub").textContent = `NSE Total Return Indices · returns as on ${fmtD(s.end)}${s.me ? " (month-end)" : ""}${s.note} · ≤1Y absolute, >1Y CAGR · risk over ${s.riskP}, beta vs ${gs[0]?.calc.refLabel || "Nifty 500 TRI"} · since-inception not shown (history downloaded from Apr-2005).`;
+  el.innerHTML = gs.length ? tableHTML(gs, s, { sort: S.isort }) : `<div class="empty">${q ? "No index matches." : "Pick at least one index group."}</div>`;
+  wireTable(el, renderIndices, "isort"); updatePickBtn();
+  await renderPeriodic(gs, s, q, { px: "iper", box: "idxPeriodic", sortName: "ipsort", unit: "group", searchEl: "#iSearch" });
 }
 
 /* ============================== ANALYTICS: drawdowns, stress, correlation, dispersion ============================== */
@@ -865,7 +994,7 @@ function renderScatter(groups, s) {
   const gs = only !== "all" && groups.some(g => g.calc.cat === only) ? groups.filter(g => g.calc.cat === only) : groups;
   const many = gs.length > 8, col = SERIES();
   box.innerHTML = `<div class="card"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:end">
-      <div><h2>Risk vs return</h2><p class="sub" style="margin:0">Each dot is a fund: Std dev over ${s.riskP} (${s.riskF === "M" ? "monthly" : "daily"}) vs ${per} return, as on ${fmtD(s.end)}. ✕ = category average${gs.length === 1 ? "; lines split the chart at the category average, so the top-left box is higher return for lower risk" : ""}.</p></div>
+      <div><h2>Risk vs return</h2><p class="sub" style="margin:0">Each dot is a fund: Std dev over ${s.riskP} (${s.riskF === "M" ? "monthly" : "daily"}) vs ${per} return, as on ${fmtD(s.end)}. ✕ = category average, ◆ = benchmark${gs.length === 1 ? "; lines split the chart at the category average, so the top-left box is higher return for lower risk" : ""}.</p></div>
       <div class="controls" style="margin:0">
         <label>Return <select id="scatP">${["1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "SI"].map(p => `<option ${p === per ? "selected" : ""}>${p}</option>`).join("")}</select></label>
         ${groups.length > 1 ? `<label>Show <select id="scatCat"><option value="all">All selected categories</option>${groups.map(g => `<option value="${g.calc.cat}" ${g.calc.cat === only ? "selected" : ""}>${esc(g.calc.name)}</option>`).join("")}</select></label>` : ""}
@@ -893,6 +1022,10 @@ function renderScatter(groups, s) {
       }
     }
   });
+  const seenB = new Set();
+  gs.forEach(g => { const b = g.calc.bm; if (!b || seenB.has(b.label) || b.risk.sd == null || b.tr[per] == null) return; seenB.add(b.label);
+    traces.push({ type: "scatter", mode: "markers", name: b.label, x: [b.risk.sd * 100], y: [b.tr[per] * 100], marker: { symbol: "diamond", size: 13, color: css("--ink"), line: { color: css("--surface"), width: 2 } },
+      hovertemplate: `<b>${esc(b.label)}</b> (benchmark)<br>Return %{y:.2f}%  ·  Std dev %{x:.2f}%<extra></extra>` }); });
   if (!traces.some(t => t.x.length)) { $("#scatChart").innerHTML = `<div class="empty">No fund has both ${s.riskP} risk and ${per} return history here.</div>`; return; }
   plot("scatChart", traces, { height: 460, hovermode: "closest", xaxis: { title: { text: `Std dev, annualised (${s.riskP})` }, ticksuffix: "%" },
     yaxis: { title: { text: `${per} return${["1Y"].includes(per) ? "" : " (CAGR)"}` }, ticksuffix: "%" }, shapes, annotations: ann, legend: { y: 1.1 } });
@@ -914,14 +1047,15 @@ function renderCorr(items, from, to, s) {
 }
 
 /* ---------- Fund details: drawdowns + stress windows ---------- */
-function renderDrawdowns(f, ser, file, s) {
+function renderDrawdowns(f, ser, file, s, tri) {
   const avg = file.avg;
   const range = store.get("uwRange", "MAX");
   const draw = () => {
     const r = store.get("uwRange", "MAX");
     let from = r === "MAX" ? ser.d[0] : shift(s.end, { years: -+r }); if (from < ser.d[0]) from = ser.d[0];
-    const [x1, y1] = underwater(ser, from, s.end), [x2, y2] = underwater(avg, from, s.end);
+    const [x1, y1] = underwater(ser, from, s.end), [x2, y2] = underwater(avg, from, s.end), b3 = tri ? underwater(tri, from, s.end) : null;
     plot("uwChart", [{ x: x1, y: y1, type: "scatter", mode: "lines", name: f.n, line: { color: SERIES()[0], width: 1.5 }, fill: "tozeroy", fillcolor: "rgba(42,120,214,0.12)", hovertemplate: "%{y:.1f}%" },
+                     ...(b3 && b3[0].length ? [{ x: b3[0], y: b3[1], type: "scatter", mode: "lines", name: tri.label, line: { color: SERIES()[1], width: 1.5 }, hovertemplate: "%{y:.1f}%" }] : []),
                      { x: x2, y: y2, type: "scatter", mode: "lines", name: "Category average", line: { color: css("--muted"), width: 1.5 }, hovertemplate: "%{y:.1f}%" }],
       { height: 320, yaxis: { ticksuffix: "%", title: { text: "Below previous peak" } } });
     document.querySelectorAll("#uwQuick button").forEach(b => b.classList.toggle("on", b.dataset.r === r));
@@ -931,38 +1065,39 @@ function renderDrawdowns(f, ser, file, s) {
   draw();
   // worst 5 drawdowns (full history up to the as-on date)
   const eps = drawdownEpisodes(ser, s.end).slice(0, 5);
-  $("#ddTable").innerHTML = eps.length ? `<table><thead><tr><th class="l">#</th><th>Fall</th><th>Peak</th><th>Bottom</th><th>Recovered</th><th>Days falling</th><th>Days to recover</th><th>Total days under peak</th><th>Category avg in same dates</th></tr></thead><tbody>` +
+  $("#ddTable").innerHTML = eps.length ? `<table><thead><tr><th class="l">#</th><th>Fall</th><th>Peak</th><th>Bottom</th><th>Recovered</th><th>Days falling</th><th>Days to recover</th><th>Total days under peak</th><th>Category avg in same dates</th>${tri ? "<th>Benchmark in same dates</th>" : ""}</tr></thead><tbody>` +
     eps.map((e, i) => { const fallDays = daysBetween(e.peak, e.trough), recDays = e.rec ? daysBetween(e.trough, e.rec) : null, tot = daysBetween(e.peak, e.rec || s.end);
       const cat = pointReturn(avg, e.peak, e.trough, true);
       return `<tr class="fund"><td class="l">${i + 1}</td><td><b>${fmtP(e.depth)}</b></td><td>${fmtD(e.peak)}</td><td>${fmtD(e.trough)}</td><td>${e.rec ? fmtD(e.rec) : `<span title="Not back to the old peak by ${fmtD(s.end)}">⚠ not yet</span>`}</td>
-        <td>${fallDays.toLocaleString("en-IN")}</td><td>${recDays == null ? `${daysBetween(e.trough, s.end).toLocaleString("en-IN")}+ so far` : recDays.toLocaleString("en-IN")}</td><td>${tot.toLocaleString("en-IN")}${e.rec ? "" : "+"}</td><td>${fmtP(cat)}</td></tr>`; }).join("") + `</tbody></table>`
+        <td>${fallDays.toLocaleString("en-IN")}</td><td>${recDays == null ? `${daysBetween(e.trough, s.end).toLocaleString("en-IN")}+ so far` : recDays.toLocaleString("en-IN")}</td><td>${tot.toLocaleString("en-IN")}${e.rec ? "" : "+"}</td><td>${fmtP(cat)}</td>${tri ? `<td>${fmtP(pointReturn(tri, e.peak, e.trough, true))}</td>` : ""}</tr>`; }).join("") + `</tbody></table>`
     : `<div class="empty">No drawdown yet.</div>`;
-  renderStress(f, ser, file);
+  renderStress(f, ser, file, tri);
 }
-function renderStress(f, ser, file) {
+function renderStress(f, ser, file, tri) {
   const list = stressList(), last = S.sum.as_of;
-  let h = `<table><thead><tr><th class="l">Window</th><th class="l">Dates</th><th>Fund return</th><th>Category average</th><th>Fund vs category</th><th>Rank in category</th><th>Fund worst fall inside window</th><th></th></tr></thead><tbody>`;
+  let h = `<table><thead><tr><th class="l">Window</th><th class="l">Dates</th><th>Fund return</th>${tri ? `<th>${esc(tri.label)}</th>` : ""}<th>Category average</th><th>Fund vs category</th><th>Rank in category</th><th>Fund worst fall inside window</th><th></th></tr></thead><tbody>`;
   list.forEach((w, k) => {
     let row = `<td class="l"><b>${esc(w.name)}</b></td><td class="l">${fmtD(w.from)} → ${fmtD(w.to)}</td>`;
-    if (w.to > last || w.from >= w.to) row += `<td colspan="5" class="l" style="color:var(--muted)">window ends after the latest NAV</td>`;
-    else if (ser.d[0] > w.from) row += `<td colspan="5" class="l" style="color:var(--muted)">fund not launched yet (first NAV ${fmtD(ser.d[0])})</td>`;
+    const span = tri ? 6 : 5;
+    if (w.to > last || w.from >= w.to) row += `<td colspan="${span}" class="l" style="color:var(--muted)">window ends after the latest NAV</td>`;
+    else if (ser.d[0] > w.from) row += `<td colspan="${span}" class="l" style="color:var(--muted)">fund not launched yet (first NAV ${fmtD(ser.d[0])})</td>`;
     else {
       const vals = new Map(); file.ser.forEach((g, code) => vals.set(code, pointReturn(g, w.from, w.to, true)));
       const arr = [...vals.values()].filter(v => v != null), mine = vals.get(f.c), avgR = mean(arr), rk = rankMap(vals).get(f.c);
       const diff = mine != null && avgR != null ? mine - avgR : null;
-      row += `<td class="${rk ? "q" + rk.q : ""}"><b>${fmtP(mine)}</b></td><td>${fmtP(avgR)}</td><td>${diff == null ? "–" : (diff >= 0 ? "▲ " : "▼ ") + fmtP(Math.abs(diff))}</td><td>${rk ? `${rk.r} / ${rk.n} (Q${rk.q})` : "–"}</td><td>${fmtP(windowMaxFall(ser, w.from, w.to))}</td>`;
+      row += `<td class="${rk ? "q" + rk.q : ""}"><b>${fmtP(mine)}</b></td>${tri ? `<td>${fmtP(pointReturn(tri, w.from, w.to, true))}</td>` : ""}<td>${fmtP(avgR)}</td><td>${diff == null ? "–" : (diff >= 0 ? "▲ " : "▼ ") + fmtP(Math.abs(diff))}</td><td>${rk ? `${rk.r} / ${rk.n} (Q${rk.q})` : "–"}</td><td>${fmtP(windowMaxFall(ser, w.from, w.to))}</td>`;
     }
     h += `<tr class="fund">${row}<td><button class="btn small" data-del="${k}" title="remove window">×</button></td></tr>`;
   });
   h += `</tbody></table>`;
   $("#stressTable").innerHTML = h;
-  $("#stressTable").onclick = e => { const b = e.target.closest("button[data-del]"); if (!b) return; const l = stressList(); l.splice(+b.dataset.del, 1); store.set("stress", l); renderStress(f, ser, file); };
+  $("#stressTable").onclick = e => { const b = e.target.closest("button[data-del]"); if (!b) return; const l = stressList(); l.splice(+b.dataset.del, 1); store.set("stress", l); renderStress(f, ser, file, tri); };
   $("#stressAdd").onclick = () => {
     const name = $("#stName").value.trim() || "My window", from = $("#stFrom").value, to = $("#stTo").value;
     if (!from || !to || from >= to) { alert("Pick a From date that is before the To date."); return; }
-    const l = stressList(); l.push({ name, from, to }); l.sort((a, b) => a.from.localeCompare(b.from)); store.set("stress", l); renderStress(f, ser, file);
+    const l = stressList(); l.push({ name, from, to }); l.sort((a, b) => a.from.localeCompare(b.from)); store.set("stress", l); renderStress(f, ser, file, tri);
   };
-  $("#stressReset").onclick = () => { store.set("stress", STRESS_DEFAULT); renderStress(f, ser, file); };
+  $("#stressReset").onclick = () => { store.set("stress", STRESS_DEFAULT); renderStress(f, ser, file, tri); };
 }
 
 /* ---------- Category league tab: categories by year + dispersion ---------- */
@@ -1012,6 +1147,9 @@ async function renderLeague() {
         h += `<td style="background:${bg};color:${fg}" title="${esc(k.name)} ${c.label}: rank ${rk.r} of ${rk.n} categories">${fmtP(v)}</td>`; });
       h += `</tr>`;
     });
+    const bids = s.bmPick !== "default" ? [s.bmPick] : [...new Set(calcs.map(k => S.cats.get(k.cat)?.bench).filter(Boolean))];
+    for (const id of bids) { const b = await loadBench(id); if (!b) continue; const cy = calendarYears(b, s.end);
+      h += `<tr class="agg bench"><td class="l name">${esc(b.label)}</td><td class="l">Benchmark</td><td></td>${cols.map(c => `<td>${fmtP(c.key === "tr:YTD" ? trailing(b, "YTD", s.end, false) : cy[c.key.slice(3)])}</td>`).join("")}</tr>`; }
     $("#lgTable").innerHTML = h + `</tbody></table>`;
   } else {
     const sortedCols = cols.map(c => calcs.map(k => ({ k, v: val(k, c.key) })).filter(x => x.v != null).sort((a, b) => b.v - a.v));
@@ -1053,10 +1191,10 @@ async function renderFund() {
   const f = S.byCode.get(code), cat = S.cats.get(f.cat), s = settings();
   body.innerHTML = `<div class="card empty">Loading…</div>`;
   const ser = await fundSeries(code), file = await catFile(f.cat, f.pl), calc = await calcCategory(f.cat, f.pl, s), avg = file.avg;
-  const m = calc.rows.get(code);
+  const m = calc.rows.get(code), tri = calc.tri, bm = calc.bm;
   if (!m) { body.innerHTML = `<div class="card empty">${esc(f.n)} has no NAV on ${fmtD(s.end)} (first NAV ${fmtD(ser.d[0])}). Change the "Returns as on" date.</div>`; return; }
   const col = SERIES();
-  const tile = (p, label) => { const rk = calc.ranks["tr:" + p].get(code); return `<div class="tile"><div class="k">${label}</div><div class="v">${fmtP(m.tr[p])}</div><div class="s">${rk ? `Rank ${rk.r} of ${rk.n} · Q${rk.q}` : "not enough history"} · cat. avg ${fmtP(calc.stats["tr:" + p].avg)}</div></div>`; };
+  const tile = (p, label) => { const rk = calc.ranks["tr:" + p].get(code); return `<div class="tile"><div class="k">${label}</div><div class="v">${fmtP(m.tr[p])}</div><div class="s">${rk ? `Rank ${rk.r} of ${rk.n} · Q${rk.q}` : "not enough history"} · cat. avg ${fmtP(calc.stats["tr:" + p].avg)}${bm ? ` · benchmark ${fmtP(bm.tr[p])}` : ""}</div></div>`; };
   body.innerHTML = `
     <div class="card" style="padding:14px 16px"><h2 style="font-size:16px">${esc(f.n)}</h2>
       <p class="sub" style="margin:2px 0 0">${esc(f.amc || "")} · ${esc(cat.ac)} – ${esc(cat.name)} · ${f.pl === "D" ? "Direct" : "Regular"} plan, Growth · scheme code ${f.c} · first NAV ${fmtD(f.inc)} · as on ${fmtD(s.end)}${s.me ? " (month-end)" : ""}</p></div>
@@ -1067,9 +1205,15 @@ async function renderFund() {
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:end">
-        <div><h2>Growth of ₹100 vs category average</h2><p class="sub" style="margin:0" id="fgSub"></p></div>
+        <div><h2>Growth of ₹100 vs category average${tri ? " and benchmark" : ""}</h2><p class="sub" style="margin:0" id="fgSub"></p></div>
         <div class="seg" id="fgQuick">${["1", "3", "5", "10", "MAX"].map(r => `<button class="btn small" data-r="${r}">${r === "MAX" ? "Max" : r + "Y"}</button>`).join("")}<button class="btn small" id="fgLog">Log</button></div>
       </div><div id="fundGrowth"></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:end">
+        <div><h2>Rolling outperformance vs benchmark</h2><p class="sub" style="margin:0" id="roSub"></p></div>
+        ${tri ? `<label style="font-size:12px;color:var(--ink-2)">Window <select id="roWin">${["1", "3", "5"].map(w => `<option value="${w}" ${w === store.get("roWin", "3") ? "selected" : ""}>${w} year</option>`).join("")}</select></label>` : ""}
+      </div><div id="roChart"></div><div class="tiles" id="roStats" style="margin:10px 0 0"></div>
     </div>
     <div class="grid2">
       <div class="card"><h2>Trailing returns vs category</h2><p class="sub">≤1Y absolute, >1Y CAGR · as on ${fmtD(s.end)}${s.me ? " (month-end)" : ""}</p><div class="tablewrap" id="fundTr"></div></div>
@@ -1091,21 +1235,24 @@ async function renderFund() {
     <div class="card"><h2>Monthly returns</h2><p class="sub">Month-end to month-end NAV change · blue gain, red loss · last column = calendar-year return (current year = YTD)</p><div class="tablewrap" id="fundHeat" style="max-height:none"></div></div>`;
   const drawGrowth = () => {
     let from = fundRange === "MAX" ? ser.d[0] : shift(s.end, { years: -+fundRange }); if (from < ser.d[0]) from = ser.d[0];
-    $("#fgSub").textContent = `${fmtD(from)} to ${fmtD(s.end)} · fund ${fmtP(pointReturn(ser, from, s.end, false))} vs category ${fmtP(pointReturn(avg, from, s.end, false))} (${daysBetween(from, s.end) > DIY ? "CAGR" : "absolute"})`;
+    $("#fgSub").textContent = `${fmtD(from)} to ${fmtD(s.end)} · fund ${fmtP(pointReturn(ser, from, s.end, false))} vs category ${fmtP(pointReturn(avg, from, s.end, false))}${tri ? ` vs ${tri.label} ${fmtP(pointReturn(tri, from, s.end, false))}` : ""} (${daysBetween(from, s.end) > DIY ? "CAGR" : "absolute"})`;
     const [x1, y1] = rebased(ser, from, s.end), [x2, y2] = rebased(avg, from, s.end);
+    const tr3 = tri && tri.d[0] <= from ? rebased(tri, from, s.end) : null;
     plot("fundGrowth", [{ x: x1, y: y1, type: "scatter", mode: "lines", name: f.n, line: { color: col[0], width: 2 }, hovertemplate: "%{y:.1f}" },
+      ...(tr3 ? [{ x: tr3[0], y: tr3[1], type: "scatter", mode: "lines", name: tri.label, line: { color: col[1], width: 2 }, hovertemplate: "%{y:.1f}" }] : []),
       { x: x2, y: y2, type: "scatter", mode: "lines", name: `${cat.name} average`, line: { color: css("--muted"), width: 1.5 }, hovertemplate: "%{y:.1f}" }],
       { height: 400, yaxis: { type: fundLog ? "log" : "linear", title: { text: "Value of ₹100" } } });
     document.querySelectorAll("#fgQuick button[data-r]").forEach(b => b.classList.toggle("on", b.dataset.r === fundRange)); $("#fgLog").classList.toggle("on", fundLog);
   };
   $("#fgQuick").onclick = e => { const b = e.target.closest("button"); if (!b) return; if (b.id === "fgLog") fundLog = !fundLog; else { fundRange = b.dataset.r; store.set("fundRange", fundRange); } drawGrowth(); };
   drawGrowth();
-  $("#fundTr").innerHTML = `<table><thead><tr><th class="l">Period</th><th>Fund</th><th>Cat. average</th><th>Cat. median</th><th>Best in cat.</th><th>Rank</th></tr></thead><tbody>` +
-    ALL_P.map(p => { const rk = calc.ranks["tr:" + p].get(code), st = calc.stats["tr:" + p]; return `<tr class="fund"><td class="l">${p}</td><td class="${rk ? "q" + rk.q : ""}">${fmtP(m.tr[p])}</td><td>${fmtP(st.avg)}</td><td>${fmtP(st.med)}</td><td>${fmtP(st.max)}</td><td>${rk ? `${rk.r} / ${rk.n} (Q${rk.q})` : "–"}</td></tr>`; }).join("") + "</tbody></table>";
+  const diffPP = (a, b) => a == null || b == null ? "–" : `${a >= b ? "▲" : "▼"} ${(Math.abs(a - b) * 100).toFixed(2)}`;
+  $("#fundTr").innerHTML = `<table><thead><tr><th class="l">Period</th><th>Fund</th>${bm ? `<th>Benchmark</th><th title="percentage points">vs bench.</th>` : ""}<th>Cat. average</th><th>Cat. median</th><th>Best in cat.</th><th>Rank</th></tr></thead><tbody>` +
+    ALL_P.map(p => { const rk = calc.ranks["tr:" + p].get(code), st = calc.stats["tr:" + p]; return `<tr class="fund"><td class="l">${p}</td><td class="${rk ? "q" + rk.q : ""}">${fmtP(m.tr[p])}</td>${bm ? `<td>${fmtP(bm.tr[p])}</td><td>${diffPP(m.tr[p], bm.tr[p])}</td>` : ""}<td>${fmtP(st.avg)}</td><td>${fmtP(st.med)}</td><td>${fmtP(st.max)}</td><td>${rk ? `${rk.r} / ${rk.n} (Q${rk.q})` : "–"}</td></tr>`; }).join("") + "</tbody></table>";
   const Y = +s.end.slice(0, 4), years = []; for (let y = Y - 1; y >= Y - 10; y--) if (m.cy[y] != null) years.push(y);
-  let h = `<table><thead><tr><th class="l">Year / risk</th><th>Fund</th><th>Cat. average</th><th>Cat. median</th><th>Rank</th></tr></thead><tbody>`;
-  years.forEach(y => { const rk = calc.ranks["cy:" + y].get(code), st = calc.stats["cy:" + y]; h += `<tr class="fund"><td class="l">${y}</td><td class="${rk ? "q" + rk.q : ""}">${fmtP(m.cy[y])}</td><td>${fmtP(st.avg)}</td><td>${fmtP(st.med)}</td><td>${rk ? `${rk.r} / ${rk.n}` : "–"}</td></tr>`; });
-  [["Std dev", "sd", fmtP], ["Beta", "beta", fmtN], ["Max drawdown", "mdd", fmtP]].forEach(([lab, k, fm]) => h += `<tr class="agg"><td class="l">${lab}</td><td>${fm(m.risk[k])}</td><td>${fm(calc.stats[k].avg)}</td><td>${fm(calc.stats[k].med)}</td><td></td></tr>`);
+  let h = `<table><thead><tr><th class="l">Year / risk</th><th>Fund</th>${bm ? "<th>Benchmark</th>" : ""}<th>Cat. average</th><th>Cat. median</th><th>Rank</th></tr></thead><tbody>`;
+  years.forEach(y => { const rk = calc.ranks["cy:" + y].get(code), st = calc.stats["cy:" + y]; h += `<tr class="fund"><td class="l">${y}</td><td class="${rk ? "q" + rk.q : ""}">${fmtP(m.cy[y])}</td>${bm ? `<td>${fmtP(bm.cy[y])}</td>` : ""}<td>${fmtP(st.avg)}</td><td>${fmtP(st.med)}</td><td>${rk ? `${rk.r} / ${rk.n}` : "–"}</td></tr>`; });
+  [["Std dev", "sd", fmtP], ["Beta", "beta", fmtN], ["Max drawdown", "mdd", fmtP]].forEach(([lab, k, fm]) => h += `<tr class="agg"><td class="l">${lab}</td><td>${fm(m.risk[k])}</td>${bm ? `<td>${fm(bm.risk[k])}</td>` : ""}<td>${fm(calc.stats[k].avg)}</td><td>${fm(calc.stats[k].med)}</td><td></td></tr>`);
   $("#fundCal").innerHTML = h + "</tbody></table>";
   // monthly heatmap from NAVs (month-end to month-end), up to the as-on date
   const byYear = {}; let prevV = null, prevKey = null;
@@ -1122,7 +1269,35 @@ async function renderFund() {
     hm += `</tr>`;
   }
   $("#fundHeat").innerHTML = hm + "</tbody></table>";
-  renderDrawdowns(f, ser, file, s);
+  renderDrawdowns(f, ser, file, s, tri);
+  renderRollingOut(f, ser, tri, s);
+}
+/* rolling outperformance: fund's rolling return minus benchmark's rolling return, same window and dates */
+function rollingSeries(f, end, w) {
+  const X = [], Y = []; let k0 = idx(f.d, shift(f.d[0], { years: w })); if (k0 < 0) k0 = 0; if (f.d[k0] < shift(f.d[0], { years: w })) k0++;
+  for (let k = k0; k < f.d.length && f.d[k] <= end; k++) { const d = f.d[k], r = pointReturn(f, shift(d, { years: -w }), d, w === 1); if (r != null) { X.push(d); Y.push(r); } }
+  return [X, Y];
+}
+function renderRollingOut(f, ser, tri, s) {
+  if (!tri) { $("#roSub").textContent = "No benchmark is mapped for this category (benchmarks are set for Equity categories only)."; $("#roChart").innerHTML = ""; return; }
+  const draw = () => {
+    const w = +$("#roWin").value; store.set("roWin", String(w));
+    const [X, Y] = rollingSeries(ser, s.end, w), X2 = [], D = [];
+    X.forEach((d, i) => { const b = pointReturn(tri, shift(d, { years: -w }), d, w === 1); if (b != null) { X2.push(d); D.push((Y[i] - b) * 100); } });
+    if (!D.length) { $("#roSub").textContent = `Not enough common history for ${w}-year rolling returns.`; Plotly.purge("roChart"); $("#roStats").innerHTML = ""; return; }
+    $("#roSub").textContent = `${w}-year ${w > 1 ? "CAGR" : "return"} of the fund minus the same for ${tri.label}, for every day from ${fmtD(X2[0])} to ${fmtD(X2[X2.length - 1])}. Above zero = fund ahead.`;
+    const [dx, dy] = downsample(X2, D, 1200);
+    plot("roChart", [{ x: dx, y: dy, type: "scatter", mode: "lines", name: "Fund − benchmark", line: { color: SERIES()[0], width: 1.5 }, fill: "tozeroy", fillcolor: "rgba(42,120,214,0.12)", hovertemplate: "%{y:.2f} pp" }],
+      { height: 300, showlegend: false, yaxis: { ticksuffix: " pp", title: { text: "Percentage points" }, zeroline: true, zerolinewidth: 1.5 } });
+    const pos = D.filter(x => x > 0).length / D.length * 100, srt = D.slice().sort((a, b) => a - b);
+    $("#roStats").innerHTML = [["Periods fund was ahead", `${pos.toFixed(1)}%`, `${D.length.toLocaleString("en-IN")} rolling ${w}Y periods`],
+      ["Average excess", `${mean(D) >= 0 ? "+" : ""}${mean(D).toFixed(2)} pp`, "per year" + (w === 1 ? "" : " (CAGR difference)")],
+      ["Median excess", `${median(D) >= 0 ? "+" : ""}${median(D).toFixed(2)} pp`, ""],
+      ["Best / worst", `${srt[srt.length - 1].toFixed(1)} / ${srt[0].toFixed(1)} pp`, ""],
+      ["Latest", `${D[D.length - 1] >= 0 ? "+" : ""}${D[D.length - 1].toFixed(2)} pp`, `on ${fmtD(X2[X2.length - 1])}`]]
+      .map(([k, v, sub]) => `<div class="tile"><div class="k">${k}</div><div class="v" style="font-size:20px">${v}</div><div class="s">${sub}</div></div>`).join("");
+  };
+  $("#roWin").onchange = draw; draw();
 }
 
 /* ============================== wiring ============================== */
@@ -1132,18 +1307,25 @@ function showTab(t) {
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + t));
   store.set("tab", t); rerender();
 }
-function rerender() { const t = currentTab(); (t === "cat" ? renderCategory : t === "amc" ? renderAmc : t === "cmp" ? renderCompare : t === "league" ? renderLeague : renderFund)(); }
+function rerender() { const t = currentTab(); (t === "cat" ? renderCategory : t === "amc" ? renderAmc : t === "cmp" ? renderCompare : t === "league" ? renderLeague : t === "idx" ? renderIndices : renderFund)(); }
 function openFund(code) { S.fund = code; showTab("fund"); }
-function saveFilters() { store.set("filters", { plan: $("#fPlan").value, ac: fAc.value, cat: fCat.value, date: $("#fDate").value, me: $("#fME").checked, riskP: $("#fRiskP").value, riskF: $("#fRiskF").value, bench: $("#fBench").value, per: cPer.value, years: $("#cYears").value, risk: $("#cRisk").checked }); }
+function saveFilters() { store.set("filters", { plan: $("#fPlan").value, ac: fAc.value, cat: fCat.value, date: $("#fDate").value, me: $("#fME").checked, riskP: $("#fRiskP").value, riskF: $("#fRiskF").value, bench: $("#fBench").value, bmk: $("#fBmk").value, per: cPer.value, years: $("#cYears").value, risk: $("#cRisk").checked }); }
 function catOptions() {
   const acs = new Set(fAc ? fAc.value : S.sum.asset_classes), plan = $("#fPlan").value;
   return S.sum.categories.filter(c => acs.has(c.ac) && c.n[plan]).map(c => ({ value: c.id, label: `${c.name} (${c.n[plan]})`, group: c.ac }));
 }
+function fillBmk() {
+  const cur = $("#fBmk").value || store.get("filters", {}).bmk || "default", bs = S.sum.benchmarks || [];
+  $("#fBmk").innerHTML = `<option value="default">Category default</option>` + IDX_GROUPS.map(g => { const l = bs.filter(b => (b.group || "Broad market") === g);
+    return l.length ? `<optgroup label="${g}">${l.map(b => `<option value="${esc(b.id)}">${esc(b.label)}</option>`).join("")}</optgroup>` : ""; }).join("");
+  $("#fBmk").value = [...$("#fBmk").options].some(o => o.value === cur) ? cur : "default";
+  $("#fBmk").disabled = !bs.length;
+}
 function fillBench() {
-  const plan = $("#fPlan").value, cur = $("#fBench").value || store.get("filters", {}).bench || "cat";
+  const plan = $("#fPlan").value, cur = $("#fBench").value || store.get("filters", {}).bench || "tri";
   const idxFunds = S.sum.funds.filter(f => f.pl === plan && /index|etf/i.test(S.cats.get(f.cat).name + " " + f.n) && /nifty|sensex|bse/i.test(f.n)).sort((a, b) => a.n.localeCompare(b.n)).slice(0, 300);
-  $("#fBench").innerHTML = `<option value="cat">Category average</option>` + (idxFunds.length ? `<optgroup label="Index funds (as benchmark proxy)">${idxFunds.map(f => `<option value="${f.c}">${esc(f.n)}</option>`).join("")}</optgroup>` : "");
-  $("#fBench").value = [...$("#fBench").options].some(o => o.value === cur) ? cur : "cat";
+  $("#fBench").innerHTML = ((S.sum.benchmarks || []).length ? `<option value="tri">Benchmark (TRI)</option>` : "") + `<option value="cat">Category average</option>` + (idxFunds.length ? `<optgroup label="Index funds (as benchmark proxy)">${idxFunds.map(f => `<option value="${f.c}">${esc(f.n)}</option>`).join("")}</optgroup>` : "");
+  $("#fBench").value = [...$("#fBench").options].some(o => o.value === cur) ? cur : ((S.sum.benchmarks || []).length ? "tri" : "cat");
 }
 
 async function init() {
@@ -1160,8 +1342,9 @@ async function init() {
   $("#asof").textContent = `Latest NAV ${fmtD(S.sum.as_of)} · ${S.sum.funds.length.toLocaleString("en-IN")} schemes · ${S.sum.categories.length} categories`;
   const age = daysBetween(S.sum.as_of, iso(new Date())), stale = age > 4;
   $("#fresh").innerHTML = `<span class="badge" title="Data updated ${S.sum.generated_at?.replace("T", " ")}"><span class="dot" style="background:${stale ? "var(--warn)" : "#0ca30c"}"></span>${stale ? `⚠ ${age} days old${HOSTED ? " – nightly update may have failed" : " – run Run_Update.bat"}` : "✓ Up to date"}</span>
-    <a class="badge" href="data/Fund_Returns.csv" download title="All funds' latest returns as CSV (opens in Excel)">⬇ All returns (CSV)</a>`;
-  $("#foot").textContent = `Returns from AMFI NAVs (Growth option). Up to 1 year: absolute; above 1 year: CAGR = (NAV end / NAV start)^(365/days) − 1. Holidays use the previous NAV. Month-end mode: 1M = NAV on last day of month ÷ NAV on last day of previous month. Std dev annualised (√12 monthly, √252 daily). Beta = covariance(fund, benchmark) ÷ variance(benchmark). Max drawdown = worst fall from a previous peak within the risk period. Category average = simple average of funds' figures (category-average index for beta/charts; current funds only, so survivorship bias). Not investment advice.`;
+    <a class="badge" href="data/Fund_Returns.csv" download title="All funds' latest returns as CSV (opens in Excel)">⬇ All returns (CSV)</a>${(S.sum.benchmarks || []).length ? `
+    <a class="badge" href="data/Index_Returns.csv" download title="All NSE indices' latest returns as CSV">⬇ Index returns (CSV)</a>` : ""}`;
+  $("#foot").textContent = `Returns from AMFI NAVs (Growth option). Up to 1 year: absolute; above 1 year: CAGR = (NAV end / NAV start)^(365/days) − 1. Holidays use the previous NAV. Month-end mode: 1M = NAV on last day of month ÷ NAV on last day of previous month. Std dev annualised (√12 monthly, √252 daily). Beta = covariance(fund, benchmark) ÷ variance(benchmark). Max drawdown = worst fall from a previous peak within the risk period. Benchmarks: NSE Total Return Indices (niftyindices.com) for Equity categories (Large Cap: Nifty 100, Mid Cap: Nifty Midcap 150, Small Cap: Nifty Smallcap 250, other Equity: Nifty 500). Category average = simple average of funds' figures (category-average index for beta/charts; current funds only, so survivorship bias). Not investment advice.`;
 
   // filters
   const F = store.get("filters", {});
@@ -1175,22 +1358,27 @@ async function init() {
   const firstCat = (S.sum.categories.find(c => /large cap/i.test(c.name)) || S.sum.categories[0]).id;
   fCat = MultiSelect($("#fCat"), { options: catOptions(), selected: F.cat || [firstCat], allText: "All categories", search: true, onChange: onFilter });
   cPer = MultiSelect($("#cPer"), { options: ALL_P.map(p => ({ value: p, label: p })), selected: F.per || ["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y"], allText: "All periods", onChange: onFilter });
-  fillBench(); fillAmc();
+  fillBmk(); fillBench(); fillAmc();
   $("#fPlan").onchange = () => { fCat.setOptions(catOptions()); fillBench(); fillAmc(); S.picked.clear(); onFilter(); };
-  ["#fDate", "#fME", "#fRiskP", "#fRiskF", "#fBench", "#cYears", "#cRisk"].forEach(id => $(id).onchange = onFilter);
+  ["#fDate", "#fME", "#fRiskP", "#fRiskF", "#fBench", "#fBmk", "#cYears", "#cRisk"].forEach(id => $(id).onchange = onFilter);
+  iGrp = MultiSelect($("#iGrp"), { options: IDX_GROUPS.filter(g => (S.sum.benchmarks || []).some(b => (b.group || "Broad market") === g)).map(g => ({ value: g, label: g })),
+    selected: store.get("iGrp", ["Broad market"]), allText: "All groups", onChange: v => { store.set("iGrp", v); renderIndices(); } });
+  let itmr; $("#iSearch").oninput = () => { clearTimeout(itmr); itmr = setTimeout(renderIndices, 200); };
+  $("#idxCsv").onclick = () => tableToCsv($("#idxTable"), `nse_indices_${settings().end}.csv`);
+  $("#idxToCompare").onclick = () => { for (const c of S.picked) if (!addCompare(c)) break; S.picked.clear(); showTab("cmp"); };
   let tmr; $("#cSearch").oninput = () => { clearTimeout(tmr); tmr = setTimeout(renderCategory, 200); };
   $("#csvBtn").onclick = () => tableToCsv($("#catTable"), `returns_${settings().end}.csv`);
   $("#toCompare").onclick = () => { for (const c of S.picked) if (!addCompare(c)) break; S.picked.clear(); showTab("cmp"); };
   $("#aAmc").onchange = renderAmc;
   // compare
-  makePicker($("#cmpPicker"), c => { addCompare(c); renderCompare(); });
+  makePicker($("#cmpPicker"), c => { addCompare(c); renderCompare(); }, { indices: true });
   $("#cmpQuick").innerHTML = ["1", "3", "5", "10", "MAX"].map(r => `<button class="btn small" data-r="${r}">${r === "MAX" ? "Max common" : r + "Y"}</button>`).join("");
   $("#cmpQuick").onclick = e => { const b = e.target.closest("button"); if (!b) return; cmpRange = b.dataset.r; store.set("cmpRange", cmpRange); $("#cmpTo").value = ""; renderCompare(); };
   $("#cmpFrom").onchange = () => { cmpRange = "CUSTOM"; renderCompare(); };
   $("#cmpTo").onchange = () => { if (cmpRange === "MAX") cmpRange = "CUSTOM"; renderCompare(); };
-  $("#cmpCatAvg").onchange = renderCompare;
+  $("#cmpCatAvg").onchange = renderCompare; $("#cmpBench").onchange = renderCompare;
   $("#cmpClear").onclick = () => { S.cmp = []; store.set("cmp", S.cmp); renderCompare(); };
-  $("#cmpChips").onclick = e => { const b = e.target.closest("button[data-rm]"); if (!b) return; S.cmp = S.cmp.filter(x => x.c !== +b.dataset.rm); store.set("cmp", S.cmp); renderCompare(); };
+  $("#cmpChips").onclick = e => { const b = e.target.closest("button[data-rm]"); if (!b) return; const rm = /^\d+$/.test(b.dataset.rm) ? +b.dataset.rm : b.dataset.rm; S.cmp = S.cmp.filter(x => x.c !== rm); store.set("cmp", S.cmp); renderCompare(); };
   $("#cmpBody").addEventListener("click", e => { const a = e.target.closest("a[data-fund]"); if (a) { e.preventDefault(); openFund(+a.dataset.fund); } });
   // fund
   makePicker($("#fundPicker"), c => { S.fund = c; renderFund(); });
