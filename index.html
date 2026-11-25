@@ -166,6 +166,7 @@ a.fl { color:var(--ink); text-decoration:none; } a.fl:hover { text-decoration:un
         <span><span class="sw q3" style="border-radius:3px;width:14px;height:14px"></span>Q3</span><span><span class="sw q4" style="border-radius:3px;width:14px;height:14px"></span>Q4 bottom 25%</span> · (n) = rank in category</div>
       <div class="tablewrap" id="catTable"></div>
     </div>
+    <div id="catPeriodic"></div>
     <div id="catScatter"></div>
   </section>
 
@@ -326,7 +327,7 @@ function rankMap(values) {                           // Map code->v  =>  Map cod
 
 /* ============================== data ============================== */
 const S = { sum: null, byCode: new Map(), cats: new Map(), files: new Map(), ser: new Map(), calc: new Map(),
-            cmp: store.get("cmp", []), fund: store.get("fund", null), sort: store.get("sort", { key: "tr:1Y", dir: -1 }), picked: new Set() };
+            cmp: store.get("cmp", []), fund: store.get("fund", null), sort: store.get("sort", { key: "tr:1Y", dir: -1 }), psort: store.get("psort", { key: "", dir: -1 }), picked: new Set() };
 async function loadJSON(path) { const r = await fetch(path, { cache: "no-cache" }); if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`); return r.json(); }
 let loadingCount = 0;
 function busy(on, text) { loadingCount += on ? 1 : -1; const el = $("#loading"); el.textContent = text || "Loading…"; el.style.display = loadingCount > 0 ? "block" : "none"; }
@@ -504,19 +505,20 @@ function columns(s) {
   return cols;
 }
 function cellVal(col, v) { return col.kind === "num" ? fmtN(v) : fmtP(v); }
-function tableHTML(groups, s, { checkbox = true, showAmc = false } = {}) {
-  const cols = columns(s);
-  const grpLabel = { tr: `Returns as on ${fmtD(s.end)}${s.me ? " (month-end)" : ""} · ≤1Y absolute, >1Y CAGR`, cy: "Calendar year", rk: `Risk · ${s.riskP} · ${s.riskF === "M" ? "monthly" : "daily"}` };
+function tableHTML(groups, s, { checkbox = true, showAmc = false, cols: customCols = null, grpLabel: customLabel = null, sort = null } = {}) {
+  const cols = customCols || columns(s);
+  const SORT = sort || S.sort;
+  const grpLabel = customLabel || { tr: `Returns as on ${fmtD(s.end)}${s.me ? " (month-end)" : ""} · ≤1Y absolute, >1Y CAGR`, cy: "Calendar year", rk: `Risk · ${s.riskP} · ${s.riskF === "M" ? "monthly" : "daily"}` };
   let h = `<table><thead><tr><th class="l name" colspan="1"></th>${checkbox ? "<th></th>" : ""}${showAmc ? "<th></th>" : ""}<th></th><th></th>`;
   let lastG = null, span = 0; const spans = [];
   cols.forEach(c => { if (c.grp !== lastG) { if (lastG) spans.push([lastG, span]); lastG = c.grp; span = 0; } span++; }); if (lastG) spans.push([lastG, span]);
   spans.forEach(([g, n]) => h += `<th colspan="${n}" class="gl" style="text-align:left">${grpLabel[g]}</th>`);
-  const arrow = k => S.sort.key === k ? (S.sort.dir > 0 ? " ▲" : " ▼") : "";
+  const arrow = k => SORT.key === k ? (SORT.dir > 0 ? " ▲" : " ▼") : "";
   h += `</tr><tr><th class="l name s" data-k="name">Fund${arrow("name")}</th>${checkbox ? `<th class="l"></th>` : ""}${showAmc ? `<th class="l s" data-k="amc">AMC${arrow("amc")}</th>` : ""}<th class="s" data-k="inc">Since${arrow("inc")}</th><th class="s" data-k="nav">NAV${arrow("nav")}</th>`;
   cols.forEach(c => h += `<th class="s ${c.first ? "gl" : ""}" data-k="${c.key}" title="${c.key === "sd" ? "Annualised standard deviation" : c.key === "beta" ? "Beta vs " + ($("#fBench").selectedOptions[0]?.text || "") : c.key === "mdd" ? "Maximum drawdown: worst peak-to-trough fall" : ""}">${c.label}${arrow(c.key)}</th>`);
   h += `</tr></thead><tbody>`;
   const nc = cols.length + 3 + (checkbox ? 1 : 0) + (showAmc ? 1 : 0);
-  const k = S.sort.key, dir = S.sort.dir;
+  const k = SORT.key, dir = SORT.dir;
   for (const g of groups) {
     const calc = g.calc;
     h += `<tr class="ghead"><td colspan="${nc}">${esc(calc.ac)} · ${esc(calc.name)} <span style="font-weight:400;color:var(--ink-2)">— ${g.codes.length} of ${calc.rows.size} fund${calc.rows.size === 1 ? "" : "s"} shown · ${s.plan === "D" ? "Direct" : "Regular"} plan</span></td></tr>`;
@@ -540,10 +542,10 @@ function tableHTML(groups, s, { checkbox = true, showAmc = false } = {}) {
   }
   return h + `</tbody></table>`;
 }
-function wireTable(el, rerender) {
+function wireTable(el, rerender, sortName = "sort") {
   el.onclick = e => {
     const th = e.target.closest("th.s");
-    if (th) { const k = th.dataset.k; S.sort = { key: k, dir: S.sort.key === k ? -S.sort.dir : (["name", "amc"].includes(k) ? 1 : -1) }; store.set("sort", S.sort); rerender(); return; }
+    if (th) { const k = th.dataset.k, cur = S[sortName]; S[sortName] = { key: k, dir: cur.key === k ? -cur.dir : (["name", "amc"].includes(k) ? 1 : -1) }; store.set(sortName, S[sortName]); rerender(); return; }
     const a = e.target.closest("a[data-fund]"); if (a) { e.preventDefault(); openFund(+a.dataset.fund); }
   };
   el.onchange = e => { const c = +e.target.dataset.c; if (!c) return; e.target.checked ? S.picked.add(c) : S.picked.delete(c); updatePickBtn(); };
@@ -556,7 +558,7 @@ let renderToken = 0;
 async function renderCategory() {
   const tok = ++renderToken, s = settings(), cats = selectedCats();
   const el = $("#catTable");
-  if (!cats.length) { el.innerHTML = `<div class="empty">Select at least one asset class and category at the top.</div>`; $("#catChartCard").innerHTML = ""; $("#catScatter").innerHTML = ""; $("#catTitle").textContent = "Funds"; $("#catSub").textContent = ""; return; }
+  if (!cats.length) { el.innerHTML = `<div class="empty">Select at least one asset class and category at the top.</div>`; $("#catChartCard").innerHTML = ""; $("#catScatter").innerHTML = ""; $("#catPeriodic").innerHTML = ""; $("#catTitle").textContent = "Funds"; $("#catSub").textContent = ""; return; }
   await loadMany(cats.map(c => [c, s.plan]));
   if (tok !== renderToken) return;
   const q = $("#cSearch").value.trim().toLowerCase();
@@ -569,6 +571,8 @@ async function renderCategory() {
   el.innerHTML = groups.length ? tableHTML(groups, s) : `<div class="empty">${q ? `No fund matches “${esc($("#cSearch").value.trim())}”.` : `No fund has a NAV on ${fmtD(s.end)} in this selection.`}</div>`;
   wireTable(el, renderCategory);
   updatePickBtn();
+  await renderPeriodic(groups, s, q);
+  if (tok !== renderToken) return;
   renderScatter(groups, s);
   // ranked chart only when one category is selected
   const card = $("#catChartCard");
@@ -722,6 +726,75 @@ async function renderCompare() {
   };
   $("#rollWin").onchange = drawRoll; $("#rollTgt").onchange = drawRoll;
   drawRoll();
+}
+
+/* ============================== PERIODIC (monthly / quarterly / half-yearly) RETURNS ==============================
+   Period return = NAV on period-end ÷ NAV on previous period-end − 1 (absolute; last NAV on or before each date).
+   Period ends are calendar month-ends: quarters end Mar/Jun/Sep/Dec; half-years end Jun/Dec (calendar) or Sep/Mar (financial).
+   If the as-on date is inside a period, that period is shown first "to date" (previous period-end → as-on date). */
+const PER_MONTHS = { M: 1, Q: 3, H: 6 };
+function isPeriodEndMonth(m, freq, basis) { return freq === "M" ? true : freq === "Q" ? m % 3 === 0 : basis === "FY" ? (m === 3 || m === 9) : (m === 6 || m === 12); }
+function lastPeriodEnd(d, freq, basis) {                  // latest period end <= d
+  let e = endOfMonth(d); if (e > d) e = monthEndBack(d, 1);
+  for (let k = 0; k < 12; k++) { if (isPeriodEndMonth(+e.slice(5, 7), freq, basis)) return e; e = monthEndBack(e, 1); }
+  return e;
+}
+function periodLabel(start, end, freq) {                    // start = previous period end (exclusive)
+  const s1 = monthEndBack(start, -1), [ys, ms] = s1.split("-").map(Number), [ye, mE] = end.split("-").map(Number);
+  const yy = y => String(y).slice(2);
+  if (freq === "M") return `${MON[mE - 1]} ${ye}`;
+  return ys === ye ? `${MON[ms - 1]}–${MON[mE - 1]} ${yy(ye)}` : `${MON[ms - 1]} ${yy(ys)}–${MON[mE - 1]} ${yy(ye)}`;
+}
+function periodColumns(end, freq, n, basis) {
+  const cols = [], step = PER_MONTHS[freq];
+  let pe = lastPeriodEnd(end, freq, basis);
+  if (pe < end) {                                           // current period, to date
+    const full = monthEndBack(pe, -step);
+    cols.push({ key: "p:" + full + ":td", label: `${periodLabel(pe, full, freq)} (to ${fmtD(end).slice(0, 6)})`, start: pe, end, partial: true });
+  }
+  for (let i = 0; i < n; i++) { const st = monthEndBack(pe, step); cols.push({ key: "p:" + pe, label: periodLabel(st, pe, freq), start: st, end: pe }); pe = st; }
+  return cols;
+}
+async function calcPeriodic(base, s, freq, n, basis) {       // base = calcCategory result (same funds, same as-on date)
+  const key = [base.cat, base.plan, setKey(s), freq, n, basis].join("|");
+  if (S.calc.has(key)) return S.calc.get(key);
+  const cols = periodColumns(s.end, freq, n, basis), rows = new Map();
+  base.rows.forEach((m, code) => { const f = S.ser.get(code), p = {}; cols.forEach(c => p[c.key] = pointReturn(f, c.start, c.end, true)); rows.set(code, { ...m, p }); });
+  const stats = {}, ranks = {};
+  cols.forEach(c => { const vals = new Map(); rows.forEach((m, code) => vals.set(code, m.p[c.key])); const a = [...vals.values()].filter(v => v != null && isFinite(v));
+    stats[c.key] = { avg: mean(a), med: median(a), n: a.length }; ranks[c.key] = rankMap(vals); });
+  const out = { cat: base.cat, plan: base.plan, name: base.name, ac: base.ac, rows, stats, ranks, cols, get: (m, k) => m.p[k] };
+  S.calc.set(key, out); return out;
+}
+async function renderPeriodic(groups, s, q) {
+  const box = $("#catPeriodic");
+  if (!groups.length) { box.innerHTML = ""; return; }
+  const freq = store.get("perF", "M"), basis = store.get("perB", "CY");
+  const defN = { M: 12, Q: 8, H: 6 }, n = +store.get("perN" + freq, defN[freq]);
+  const pgroups = [];
+  for (const g of groups) pgroups.push({ calc: await calcPeriodic(g.calc, s, freq, n, basis), codes: g.codes });
+  const pc = pgroups[0].calc.cols;
+  const cols = pc.map((c, i) => ({ key: c.key, label: c.label, grp: c.partial ? "td" : "p", first: i === 0 || (i === 1 && pc[0].partial), kind: "ret" }));
+  const word = { M: "Monthly", Q: "Quarterly", H: "Half-yearly" }[freq];
+  if (!cols.some(c => c.key === S.psort.key)) S.psort = { key: cols[pc[0].partial ? 1 : 0].key, dir: -1 };
+  const lab = { td: "To date", p: `${word} returns (absolute) · latest first` };
+  box.innerHTML = `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <div style="flex:1;min-width:300px"><h2>${word} returns</h2><p class="sub" style="margin:0">Each column: NAV on the period's last day ÷ NAV on the previous period's last day − 1 (holidays use the previous NAV) · ${s.plan === "D" ? "Direct" : "Regular"} plan · up to ${fmtD(s.end)}${q ? ` · search: “${esc($("#cSearch").value.trim())}”` : ""} · (n) = rank in category, shading = quartile</p></div>
+      <div class="controls" style="margin:0">
+        <label>Frequency <select id="perF"><option value="M" ${freq === "M" ? "selected" : ""}>Monthly</option><option value="Q" ${freq === "Q" ? "selected" : ""}>Quarterly</option><option value="H" ${freq === "H" ? "selected" : ""}>Semi-annually</option></select></label>
+        <label>Periods <select id="perN">${[4, 6, 8, 12, 18, 24, 36].map(x => `<option ${x === n ? "selected" : ""}>${x}</option>`).join("")}</select></label>
+        ${freq === "H" ? `<label>Half-years <select id="perB"><option value="CY" ${basis === "CY" ? "selected" : ""}>Calendar (Jan–Jun, Jul–Dec)</option><option value="FY" ${basis === "FY" ? "selected" : ""}>Financial (Apr–Sep, Oct–Mar)</option></select></label>` : ""}
+        <button class="btn small" id="perCsv" style="align-self:end">Download CSV</button>
+      </div></div>
+    <div class="tablewrap" id="perTable"></div></div>`;
+  const el = $("#perTable");
+  el.innerHTML = tableHTML(pgroups, s, { checkbox: false, cols, grpLabel: lab, sort: S.psort });
+  wireTable(el, () => renderPeriodic(groups, s, q), "psort");
+  $("#perF").onchange = e => { store.set("perF", e.target.value); renderPeriodic(groups, s, q); };
+  $("#perN").onchange = e => { store.set("perN" + freq, e.target.value); renderPeriodic(groups, s, q); };
+  if ($("#perB")) $("#perB").onchange = e => { store.set("perB", e.target.value); renderPeriodic(groups, s, q); };
+  $("#perCsv").onclick = () => tableToCsv(el, `${word.toLowerCase()}_returns_${s.end}.csv`);
 }
 
 /* ============================== ANALYTICS: drawdowns, stress, correlation, dispersion ============================== */
