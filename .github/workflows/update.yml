@@ -7,6 +7,9 @@ on:
     # retry next morning, 02:45 UTC = 08:15 IST (catches late AMFI uploads / failed runs)
     - cron: "45 2 * * 2-6"
   workflow_dispatch:        # adds a "Run workflow" button in the Actions tab
+  push:                     # republish automatically when you upload a new index.html / mf_update.py
+    branches: [main]
+    paths: ["index.html", "mf_update.py", ".github/workflows/update.yml"]
 
 permissions:
   contents: read
