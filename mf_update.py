@@ -99,12 +99,17 @@ SECTION_RE = re.compile(r"^(.*?)\s*Schemes?\s*\((.*)\)\s*$", re.IGNORECASE)
 
 
 def parse_navall(text):
-    """Rows look like  code;isin;isin;name;nav;date  under section + AMC header lines."""
+    """Reads both AMFI layouts:
+       new (2026): code;isin;isin;Scheme Name;Plan;Option;NAV;Date
+       old:        code;isin;isin;Scheme Name;NAV;Date
+    Data rows sit under section-header lines (type + category) and AMC-name lines."""
     lines = text.replace("\r", "").split("\n")
     first = next((l for l in lines if l.strip()), "")
+    header = [h.strip().lower() for h in first.split(";")]
     if "scheme code" not in first.lower() or "net asset value" not in first.lower():
         raise ValueError("NAVAll.txt format not recognised (AMFI may have changed it). "
                          f"First line: {first[:100]!r}")
+    has_plan_cols = "plan" in header and "option" in header
     out, stype, section, amc = [], None, None, None
     for raw in lines[1:]:
         line = raw.strip()
@@ -119,7 +124,12 @@ def parse_navall(text):
                 continue                       # 'N.A.' NAVs etc.
             if nav <= 0:
                 continue
-            out.append(dict(scheme_code=int(p[0]), scheme_name=";".join(p[3:-2]).strip(),
+            if has_plan_cols and len(p) >= 8:
+                name, plan, option = ";".join(p[3:-4]).strip(), p[-4].strip(), p[-3].strip()
+                full = " - ".join(x for x in (name, plan, option) if x)
+            else:
+                full = ";".join(p[3:-2]).strip()
+            out.append(dict(scheme_code=int(p[0]), scheme_name=full,
                             nav=nav, nav_date=d, scheme_type=stype, section=section, amc=amc))
         elif ";" in line:
             continue
@@ -146,7 +156,8 @@ def _only_planopt(text):
 
 def clean_name(name):
     """'HDFC Flexi Cap Fund - Growth Option - Direct Plan' -> 'HDFC Flexi Cap Fund'"""
-    s = re.sub(r"\(([^)]*)\)", lambda m: "" if _only_planopt(m.group(1)) else m.group(0), name or "")
+    s = re.sub(r"\s*\(existing number of segregated portfolios?[^)]*\)", "", name or "", flags=re.I)
+    s = re.sub(r"\(([^)]*)\)", lambda m: "" if _only_planopt(m.group(1)) else m.group(0), s)
     keep = [p for p in (x.strip() for x in re.split(r"\s*[-–]\s*", s)) if p and not _only_planopt(p)]
     if not keep:
         return (name or "").strip()
@@ -172,7 +183,7 @@ def classify(rec):
     rec["asset_class"] = re.sub(r"\s+Schemes?$", "", ac.strip(), flags=re.I)
     rec["category"] = re.sub(r"\s+Fund$", "", cat.strip(), flags=re.I)
     rec["category_id"] = re.sub(r"[^a-z0-9]+", "_", f"{rec['asset_class']}_{rec['category']}".lower()).strip("_")
-    lname = name.lower()
+    lname = re.sub(r"\(existing number of segregated portfolios?[^)]*\)", "", name.lower())
     rec["in_universe"] = int(rec["scheme_type"] in SCHEME_TYPES and rec["plan"] in PLANS
                              and rec["option"] in OPTIONS and rec["asset_class"] not in EXCLUDE_ASSET_CLASSES
                              and not any(w in lname for w in EXCLUDE_NAME_WORDS))
@@ -514,7 +525,7 @@ def make_demo_navall(seed=7):
             ("Hybrid Scheme - Aggressive Hybrid Fund", 6, 0.11, 0.12, 0.7), ("Debt Scheme - Liquid Fund", 6, 0.065, 0.004, 0)]
     amcs = ["Alpha", "Bharat", "Coastal", "Deccan", "Everest", "Ganga", "Himalaya", "Indus", "Jaipur", "Kaveri"]
     styles = ["{n} - Direct Plan - Growth", "{n} - Growth Option - Direct Plan", "{n}-Direct Plan-Growth", "{n} Direct Growth"]
-    lines = ["Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Net Asset Value;Date", ""]
+    lines = ["Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Plan;Option;Net Asset Value;Date", ""]
     hist, code = [], 900001
     for sec, k, mu, vol, beta in cats:
         lines += [f"Open Ended Schemes({sec})", ""]
@@ -529,8 +540,8 @@ def make_demo_navall(seed=7):
             base = f"{amcs[i]} {sec.split(' - ')[1]}"
             lines.append(f"{amcs[i]} Mutual Fund")
             for nav, cd, plan in ((nav_d, code, "Direct"), (nav_r, code + 50000, "Regular")):
-                name = styles[i % 4].format(n=base).replace("Direct", plan)
-                lines.append(f"{cd};INFDEMO{cd};-;{name};{nav[-1]:.4f};{days[-1]:%d-%b-%Y}")
+                opt = ["Growth", "Growth Option", "GROWTH", "Direct Growth"][i % 4].replace("Direct", plan)
+                lines.append(f"{cd};INFDEMO{cd};-;{base};{plan} Plan;{opt};{nav[-1]:.4f};{days[-1]:%d-%b-%Y}")
                 hist += [(cd, d.date().isoformat(), float(v)) for d, v in zip(days[st:], nav)]
             lines.append("")
             code += 1
